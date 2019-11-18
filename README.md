@@ -7,7 +7,7 @@ Its goal is to provide a light and simple mechanism to connect components that w
 ### Example: how to use actuator instead of polymorphism
 
 ```cpp
-void rotate_shapes(std::vector<shape*>& shapes, int angle)
+void rotate_shapes(const std::vector<shape*>& shapes, int angle)
 {
   for (const auto& s : shapes)
   {
