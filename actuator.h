@@ -302,6 +302,23 @@ auto connect(std::pair<keyT, actionT*> A1, Actions... An)
   return std::move(actuator);
 }
 
+// generic helpers to remove const qualifier from a function type,
+// for instance const member functions
+template <typename T>
+struct function_remove_const;
+
+template <typename R, typename... Args>
+struct function_remove_const<R(Args...)>
+{
+    using type = R(Args...);
+};
+
+template <typename R, typename... Args>
+struct function_remove_const<R(Args...)const>
+{
+    using type = R(Args...);
+};
+
 /**
  *  @defgroup untangle_functions namespace untangle: functions
  */
@@ -315,15 +332,15 @@ auto connect(std::pair<keyT, actionT*> A1, Actions... An)
  * Therefore it is safe to use actions provided by this binding inside an \ref actuator.
  *
  * @param obj - Class object.
- * @param classT::*method - Pointer to function member. It is specified as &<class type>::<function member>
+ * @param method - Pointer to function member. It is specified as &<class type>::<function member>
  * @return actionT - A std::function that wraps the pointer to function member.
  *
  * @remark If the class object gets invalid, invoking this binding will throw an exception of type invalid_action.
  *
  * @ingroup untangle_functions
  */
-template <typename classT, typename T, typename actionT = std::function<T>>
-static actionT bind(const std::shared_ptr<classT>& obj, T classT::*method)
+template <typename classT, typename T, typename actionT = std::function<typename function_remove_const<T>::type>>
+static actionT bind(const std::shared_ptr<classT>& obj, T classT::* method)
 {
   return [&obj, method](auto&&... args) mutable -> typename actionT::result_type
   {
@@ -347,13 +364,13 @@ static actionT bind(const std::shared_ptr<classT>& obj, T classT::*method)
  * @remark It is provided for conveniency of use: within a class it is safe to create bindings through <B>this</B> pointer.
  *
  * @param obj - Pointer to class.
- * @param classT::*method - Pointer to function member. It is specified as &<class type>::<function member>
+ * @param method - Pointer to function member. It is specified as &<class type>::<function member>
  * @return actionT - A std::function that wraps the pointer to function member.
  *
  * @ingroup untangle_functions
  */
-template <typename classT, typename T, typename actionT = std::function<T>>
-static actionT bind(classT* obj, T classT::*method)
+template <typename classT, typename T, typename actionT = std::function<typename function_remove_const<T>::type>>
+static actionT bind(classT* obj, T classT::* method)
 {
   assert(obj != nullptr);
   return [obj, method](auto&&... args) mutable -> typename actionT::result_type
@@ -361,4 +378,5 @@ static actionT bind(classT* obj, T classT::*method)
     return ((obj)->*method)(std::forward<decltype(args)>(args)...);
   };
 }
+
 }
