@@ -76,6 +76,13 @@ struct actuator final
     actions.clear();
   }
 
+  /**
+   * @brief Helper method to access the action type of this object.
+   *
+   * @note Intended to be used in expressions by `decltype(<actuator instance>.type()`
+   *
+   * @return actionT
+   */
   actionT type()
   {
     return nullptr;
