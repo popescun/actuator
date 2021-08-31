@@ -94,65 +94,7 @@ void rotate_shapes(const std::vector<shape*>& shapes, int angle)
     s->rotate(angle);
   }
 }
-// //! [test_polymorphism1]
 
-// void test_remove()
-// {
-//   //! [test_remove]
-//   std::shared_ptr<triangle> t(new triangle);
-//   std::shared_ptr<circle> c(new circle);
-//   std::shared_ptr<square> s(new square);
-
-//   auto action1 = untangle::bind(t, &triangle::rotate);
-//   auto action2 = untangle::bind(c, &circle::rotate);
-//   auto action3 = untangle::bind(s, &square::rotate);
-
-//   auto actuator_rotate = untangle::connect(action1, action2, action3);
-
-//   std::cout << "\nremove an action\n" << std::endl;
-//   actuator_rotate.remove(&action1);
-//   actuator_rotate(50);
-//   //! [test_remove]
-// }
-
-// void test_invalid_action()
-// {
-//   //! [test_invalid_action]
-//   std::shared_ptr<triangle> t(new triangle);
-//   std::shared_ptr<circle> c(new circle);
-//   std::shared_ptr<square> s(new square);
-
-//   auto action1 = untangle::bind(t, &triangle::rotate);
-//   auto action2 = untangle::bind(c, &circle::rotate);
-//   auto action3 = untangle::bind(s, &square::rotate);
-
-//   auto actuator_rotate = untangle::connect(action1, action2, action3);
-
-//   std::cout << "\nthe bound object is reset: the action is not executed and removed \n" << std::endl;
-//   c.reset();
-//   actuator_rotate(60);
-//   //! [test_invalid_action]
-// }
-
-// void test_remove_by_empty_action()
-// {
-//   //! [test_remove_by_empty_action]
-//   std::shared_ptr<triangle> t(new triangle);
-//   std::shared_ptr<circle> c(new circle);
-//   std::shared_ptr<square> s(new square);
-
-//   auto action1 = untangle::bind(t, &triangle::rotate);
-//   auto action2 = untangle::bind(c, &circle::rotate);
-//   auto action3 = untangle::bind(s, &square::rotate);
-
-//   auto actuator_rotate = untangle::connect(action1, action2, action3);
-
-//   std::cout << "\nthe action is removed when an empty action is connected in its place\n" << std::endl;
-//   std::function<void(int)> action_empty;
-//   actuator_rotate = untangle::connect(action1, action_empty, action3);
-//   actuator_rotate(70);
-//   //! [test_remove_by_empty_action]
-// }
 
 // void test_extract_results()
 // {
@@ -366,6 +308,79 @@ TEST(test_actuator, test_add) {
   auto actuator_rotate = untangle::connect(action1, action2, action3);
   actuator_rotate.add(&action1);
   actuator_rotate(20);
+
+  testing::Mock::VerifyAndClearExpectations(t.get());
+  testing::Mock::VerifyAndClearExpectations(c.get());
+  testing::Mock::VerifyAndClearExpectations(s.get());
+}
+
+TEST(test_actuator, test_remove) {
+  std::shared_ptr<triangle_mock> t{new triangle_mock};
+  std::shared_ptr<circle_mock> c{new circle_mock};
+  std::shared_ptr<square_mock> s{new square_mock};
+
+  EXPECT_CALL(*t, rotate(testing::_)).Times(0);
+  EXPECT_CALL(*c, rotate(testing::_)).WillOnce(testing::Return());
+  EXPECT_CALL(*s, rotate(testing::_)).WillOnce(testing::Return());
+  auto action1 = untangle::bind(t, &triangle_mock::rotate);
+  auto action2 = untangle::bind(c, &circle_mock::rotate);
+  auto action3 = untangle::bind(s, &square_mock::rotate);
+
+  auto actuator_rotate = untangle::connect(action1, action2, action3);
+  actuator_rotate.remove(&action1);
+  actuator_rotate(50);
+
+  testing::Mock::VerifyAndClearExpectations(t.get());
+  testing::Mock::VerifyAndClearExpectations(c.get());
+  testing::Mock::VerifyAndClearExpectations(s.get());
+}
+
+TEST(test_actuator, test_remove_by_empty_action) {
+  std::shared_ptr<triangle_mock> t{new triangle_mock};
+  std::shared_ptr<circle_mock> c{new circle_mock};
+  std::shared_ptr<square_mock> s{new square_mock};
+
+  EXPECT_CALL(*t, rotate(testing::_)).WillOnce(testing::Return());
+  EXPECT_CALL(*c, rotate(testing::_)).WillOnce(testing::Return());
+  EXPECT_CALL(*s, rotate(testing::_)).WillOnce(testing::Return());
+  auto action1 = untangle::bind(t, &triangle_mock::rotate);
+  auto action2 = untangle::bind(c, &circle_mock::rotate);
+  auto action3 = untangle::bind(s, &square_mock::rotate);
+
+  auto actuator_rotate = untangle::connect(action1, action2, action3);
+  actuator_rotate(70);
+
+  testing::Mock::VerifyAndClearExpectations(t.get());
+  testing::Mock::VerifyAndClearExpectations(c.get());
+  testing::Mock::VerifyAndClearExpectations(s.get());
+
+  EXPECT_CALL(*t, rotate(testing::_)).WillOnce(testing::Return());
+  EXPECT_CALL(*c, rotate(testing::_)).Times(0);
+  EXPECT_CALL(*s, rotate(testing::_)).WillOnce(testing::Return());
+  std::function<void(int)> action_empty;
+  actuator_rotate = untangle::connect(action1, action_empty, action3);
+  actuator_rotate(80);
+
+  testing::Mock::VerifyAndClearExpectations(t.get());
+  testing::Mock::VerifyAndClearExpectations(c.get());
+  testing::Mock::VerifyAndClearExpectations(s.get());
+}
+
+TEST(test_actuator, test_invalid_action) {
+  std::shared_ptr<triangle_mock> t{new triangle_mock};
+  std::shared_ptr<circle_mock> c{new circle_mock};
+  std::shared_ptr<square_mock> s{new square_mock};
+
+  EXPECT_CALL(*t, rotate(testing::_)).WillOnce(testing::Return());
+  EXPECT_CALL(*c, rotate(testing::_)).Times(0);
+  EXPECT_CALL(*s, rotate(testing::_)).WillOnce(testing::Return());
+  auto action1 = untangle::bind(t, &triangle_mock::rotate);
+  auto action2 = untangle::bind(c, &circle_mock::rotate);
+  auto action3 = untangle::bind(s, &square_mock::rotate);
+
+  auto actuator_rotate = untangle::connect(action1, action2, action3);
+  c.reset();
+  actuator_rotate(60);
 
   testing::Mock::VerifyAndClearExpectations(t.get());
   testing::Mock::VerifyAndClearExpectations(c.get());
