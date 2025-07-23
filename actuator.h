@@ -3,7 +3,7 @@
  *
  * @file connect.h
  * @author Nicu Popescu
- * @date 2018-04-30
+ * @date 2018 - 2021
  */
 #pragma once
 
@@ -74,6 +74,11 @@ struct actuator final
   ~actuator()
   {
     actions.clear();
+  }
+
+  actionT type()
+  {
+    return nullptr;
   }
 
   /**

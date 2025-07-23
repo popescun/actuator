@@ -4,6 +4,8 @@ An "actuator" is a generic callable that may invoke a list of "actions"(callable
 
 Its goal is to provide a light and simple mechanism to connect components that want to communicate with each other. It works similar as the "signal and slots" mechanisms from other frameworks, but much simplified.
 
+An actuator provides the results of all actions in a vector, in the same order as the actions were added.
+
 ### Example: how to use actuator instead of polymorphism
 
 ```cpp
