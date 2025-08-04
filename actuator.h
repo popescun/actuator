@@ -7,6 +7,7 @@
  */
 #pragma once
 
+#include <utility>
 #include <vector>
 #include <list>
 #include <map>
@@ -35,7 +36,7 @@ struct invalid_action : private std::exception
    *
    * @param text - A message text, describing the reason of this exception.
    */
-  explicit invalid_action(const std::string& text) : what(std::move(text)){}
+  explicit invalid_action(std::string  text) : what(std::move(text)){}
 
   std::string what; //!< It holds the message text.
 };
