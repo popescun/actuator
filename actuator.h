@@ -234,7 +234,7 @@ struct actuator final
    * @return true - if name can be found in actuator::mapActions
    * @return false - if name can not be found in actuator::mapActions
    */
-  bool has_action(std::string name) { return mapActions.find(name) != mapActions.end() ? true : false; }
+  bool has_action(std::string name) { return mapActions.find(name) != mapActions.end(); }
 
   private:
    /**
