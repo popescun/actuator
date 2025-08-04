@@ -16,6 +16,7 @@
 #include <iostream>
 #include <type_traits>
 #include <cassert>
+#include <exception>
 
 namespace untangle
 {
@@ -27,14 +28,14 @@ namespace untangle
  *         When the class object gets invalid, invoking the action will raise an exception of this type.
  *
  */
-struct invalid_action
+struct invalid_action : private std::exception
 {
   /**
    * @brief Construct a new invalid action object.
    *
    * @param text - A message text, describing the reason of this exception.
    */
-  invalid_action(const std::string& text) : what(std::move(text)){}
+  explicit invalid_action(const std::string& text) : what(std::move(text)){}
 
   std::string what; //!< It holds the message text.
 };
