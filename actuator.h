@@ -15,7 +15,7 @@
 #include <memory>
 #include <iostream>
 #include <type_traits>
-#include <assert.h>
+#include <cassert>
 
 namespace untangle
 {
