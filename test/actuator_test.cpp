@@ -16,7 +16,7 @@ namespace test {
 class shape
 {
 public:
-  virtual ~shape(){}
+  virtual ~shape()= default;
   virtual void rotate(int angle) const = 0;
 };
 
@@ -94,37 +94,6 @@ void rotate_shapes(const std::vector<shape*>& shapes, int angle)
     s->rotate(angle);
   }
 }
-
-
-// void test_extract_results()
-// {
-//   //! [test_extract_results]
-//   std::shared_ptr<triangle> t(new triangle);
-//   std::shared_ptr<circle> c(new circle);
-//   std::shared_ptr<square> s(new square);
-
-//   auto action1 = untangle::bind(t, &triangle::height_in);
-//   auto action2 = untangle::bind(c, &circle::height_in);
-//   auto action3 = untangle::bind(s, &square::height_in);
-
-//   auto actuator_height_in = untangle::connect(action1, action2, action3);
-//   actuator_height_in(80);
-
-//   auto action4 = untangle::bind(t, &triangle::height_out);
-//   auto action5 = untangle::bind(c, &circle::height_out);
-//   auto action6 = untangle::bind(s, &square::height_out);
-
-//   auto actuator_height_out = untangle::connect(action4, action5, action6);
-//   actuator_height_out();
-
-//   std::cout << "\nextract result\n" << std::endl;
-
-//   for (const auto r : actuator_height_out.results)
-//   {
-//     std::cout << r << " ";
-//   }
-//   //! [test_extract_results]
-// }
 
 // void test_void_return()
 // {
@@ -284,8 +253,7 @@ TEST(test_actuator, test_assignment) {
   auto action3 = untangle::bind(s, &square_mock::rotate);
 
   auto actuator_rotate = untangle::connect(action1, action2, action3);
-  untangle::actuator<decltype(actuator_rotate.type())> actuator_rotate_1;
-  actuator_rotate_1 = actuator_rotate;
+  untangle::actuator<decltype(actuator_rotate.type())> actuator_rotate_1 = actuator_rotate;
   actuator_rotate_1(20);
 
   testing::Mock::VerifyAndClearExpectations(t.get());
@@ -385,6 +353,34 @@ TEST(test_actuator, test_invalid_action) {
   testing::Mock::VerifyAndClearExpectations(t.get());
   testing::Mock::VerifyAndClearExpectations(c.get());
   testing::Mock::VerifyAndClearExpectations(s.get());
+}
+
+TEST(test_actuator, test_extract_results) {
+  //! [test_extract_results]
+  std::shared_ptr<triangle> t(new triangle);
+  std::shared_ptr<circle> c(new circle);
+  std::shared_ptr<square> s(new square);
+
+  auto action1 = untangle::bind(t, &triangle::height_in);
+  auto action2 = untangle::bind(c, &circle::height_in);
+  auto action3 = untangle::bind(s, &square::height_in);
+
+  auto actuator_height_in = untangle::connect(action1, action2, action3);
+  actuator_height_in(80);
+
+  EXPECT_EQ(actuator_height_in.results.size(), 0);
+
+  auto action4 = untangle::bind(t, &triangle::height_out);
+  auto action5 = untangle::bind(c, &circle::height_out);
+  auto action6 = untangle::bind(s, &square::height_out);
+
+  auto actuator_height_out = untangle::connect(action4, action5, action6);
+  actuator_height_out();
+
+  EXPECT_EQ(actuator_height_out.results.size(), 3);
+  EXPECT_THAT(actuator_height_out.results, testing::ElementsAre(80, 80, 80));
+
+  //! [test_extract_results]
 }
 
 } // namespace test
