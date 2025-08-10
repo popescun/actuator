@@ -17,70 +17,108 @@ class shape
 public:
   virtual ~shape()= default;
   virtual void rotate(int angle) const = 0;
+  virtual void test_vr_no_args() const = 0;
+  virtual void test_vr_args(int x, int y) const = 0;
 };
-
 
 class triangle : public shape
 {
 public:
-  void rotate(int angle) const override
-  {
+  void rotate(int angle) const override {
     std::cout << "triangle::rotate " << angle << std::endl;
   }
 
-  void height_in(int h) { std::cout << "triangle::height_in" << std::endl; height = h; }
-  int height_out() { std::cout << "triangle::height_out" << std::endl; return height; }
+  void height_in(int h) {
+    std::cout << "triangle::height_in" << std::endl; height = h;
+  }
+  int height_out() const {
+    std::cout << "triangle::height_out" << std::endl; return height;
+  }
 
-  void test_vr() { std::cout << "triangle::test_vr" << std::endl; }
-  void test_vr_args(int x, int y) { std::cout << "triangle::test_vr_args " << x << ", "<< y <<std::endl; }
+  void test_vr_no_args() const override {
+    std::cout << "triangle::test_vr" << std::endl;
+  }
+
+  void test_vr_args(int x, int y) const override {
+    std::cout << "triangle::test_vr_args " << x << ", "<< y <<std::endl;
+  }
 
 private:
-  int height;
+  int height{0};
 };
 
 class triangle_mock : public shape {
 public:
-  MOCK_CONST_METHOD1(rotate, void(int));
+  MOCK_METHOD(void, rotate, (int), (const, override));
+  MOCK_METHOD(void, test_vr_no_args, (), (const, override));
+  MOCK_METHOD(void, test_vr_args, (int, int), (const, override));
 };
 
 class circle : public shape
 {
 public:
-  void rotate(int angle) const override { std::cout << "circle::rotate " << angle << std::endl; }
+  void rotate(int angle) const override {
+    std::cout << "circle::rotate " << angle << std::endl;
+  }
 
-  void height_in(int h) { std::cout << "circle::height_in" << std::endl; height = h; }
-  int height_out() { std::cout << "circle::height_out" << std::endl; return height; }
+  void height_in(int h) {
+    std::cout << "circle::height_in" << std::endl; height = h;
+  }
 
-  void test_vr() { std::cout << "circle::test_vr" << std::endl; }
-  void test_vr_args(int x, int y) { std::cout << "circle::test_vr_args " << x << ", "<< y <<std::endl; }
+  int height_out() const {
+    std::cout << "circle::height_out" << std::endl; return height;
+  }
+
+  void test_vr_no_args() const override {
+    std::cout << "circle::test_vr" << std::endl;
+  }
+  void test_vr_args(int x, int y) const override {
+    std::cout << "circle::test_vr_args " << x << ", "<< y <<std::endl;
+  }
 
 private:
-  int height;
+  int height{0};
 };
 
 class circle_mock : public shape {
 public:
-  MOCK_CONST_METHOD1(rotate, void(int));
+  MOCK_METHOD(void, rotate, (int), (const, override));
+  MOCK_METHOD(void, test_vr_no_args, (), (const, override));
+  MOCK_METHOD(void, test_vr_args, (int, int), (const, override));
 };
 
 class square : public shape
 {
 public:
-  void rotate(int angle) const override { std::cout << "square::rotate " << angle << std::endl; }
+  void rotate(int angle) const override {
+    std::cout << "square::rotate " << angle << std::endl;
+  }
 
-  void height_in(int h) { std::cout << "square::height_in" << std::endl; height = h; }
-  int height_out() { std::cout << "square::height_out" << std::endl; return height; }
+  void height_in(int h) {
+    std::cout << "square::height_in" << std::endl; height = h;
+  }
 
-  void test_vr() { std::cout << "square::test_vr" << std::endl; }
-  void test_vr_args(int x, int y) { std::cout << "square::test_vr_args " << x << ", "<< y <<std::endl; }
+  int height_out() const {
+    std::cout << "square::height_out" << std::endl; return height;
+  }
+
+  void test_vr_no_args() const override {
+    std::cout << "square::test_vr" << std::endl;
+  }
+
+  void test_vr_args(int x, int y) const override {
+    std::cout << "square::test_vr_args " << x << ", "<< y <<std::endl;
+  }
 
 private:
-  int height;
+  int height{0};
 };
 
 class square_mock : public shape {
 public:
-  MOCK_CONST_METHOD1(rotate, void(int));
+  MOCK_METHOD(void, rotate, (int), (const, override));
+  MOCK_METHOD(void, test_vr_no_args, (), (const, override));
+  MOCK_METHOD(void, test_vr_args, (int, int), (const, override));
 };
 
 void rotate(int angle) { std::cout << "function::rotate " << angle << std::endl; }
@@ -93,24 +131,6 @@ void rotate_shapes(const std::vector<shape*>& shapes, int angle)
     s->rotate(angle);
   }
 }
-
-// void test_void_return()
-// {
-//   //! [test_void_return]
-//   std::shared_ptr<triangle> t(new triangle);
-//   std::shared_ptr<circle> c(new circle);
-//   std::shared_ptr<square> s(new square);
-
-//   auto action1 = untangle::bind(t, &triangle::test_vr);
-//   auto action2 = untangle::bind(c, &circle::test_vr);
-//   auto action3 = untangle::bind(s, &square::test_vr);
-
-//   auto actuator_vr = untangle::connect(action1, action2, action3);
-
-//   std::cout << "\nvoid return\n" << std::endl;
-//   actuator_vr();
-//   //! [test_void_return]
-// }
 
 // void test_void_return_and_args()
 // {
@@ -380,6 +400,58 @@ TEST(test_actuator, test_extract_results) {
   EXPECT_THAT(actuator_height_out.results, testing::ElementsAre(80, 80, 80));
 
   //! [test_extract_results]
+}
+
+TEST(test_actuator, test_void_return_no_args)
+{
+  //! [test_void_return_no_args]
+  std::shared_ptr<triangle_mock> t{new triangle_mock};
+  std::shared_ptr<circle_mock> c{new circle_mock};
+  std::shared_ptr<square_mock> s{new square_mock};
+
+  EXPECT_CALL(*t, test_vr_no_args).Times(1);
+  EXPECT_CALL(*c, test_vr_no_args).Times(1);
+  EXPECT_CALL(*s, test_vr_no_args).Times(1);
+  auto action1 = untangle::bind(t, &triangle_mock::test_vr_no_args);
+  auto action2 = untangle::bind(c, &circle_mock::test_vr_no_args);
+  auto action3 = untangle::bind(s, &square_mock::test_vr_no_args);
+
+  auto actuator = untangle::connect(action1, action2, action3);
+
+  actuator();
+
+  EXPECT_EQ(actuator.results.size(), 0);
+
+  testing::Mock::VerifyAndClearExpectations(t.get());
+  testing::Mock::VerifyAndClearExpectations(c.get());
+  testing::Mock::VerifyAndClearExpectations(s.get());
+  //! [test_void_return_no_args]
+}
+
+TEST(test_actuator, test_void_return_and_args)
+{
+  //! [test_void_return_and_args]
+  std::shared_ptr<triangle_mock> t{new triangle_mock};
+  std::shared_ptr<circle_mock> c{new circle_mock};
+  std::shared_ptr<square_mock> s{new square_mock};
+
+  EXPECT_CALL(*t, test_vr_args).Times(1);
+  EXPECT_CALL(*c, test_vr_args).Times(1);
+  EXPECT_CALL(*s, test_vr_args).Times(1);
+  auto action1 = untangle::bind(t, &triangle_mock::test_vr_args);
+  auto action2 = untangle::bind(c, &circle_mock::test_vr_args);
+  auto action3 = untangle::bind(s, &square_mock::test_vr_args);
+
+  auto actuator = untangle::connect(action1, action2, action3);
+
+  actuator(90, 100);
+
+  EXPECT_EQ(actuator.results.size(), 0);
+
+  testing::Mock::VerifyAndClearExpectations(t.get());
+  testing::Mock::VerifyAndClearExpectations(c.get());
+  testing::Mock::VerifyAndClearExpectations(s.get());
+  //! [test_void_return_and_args]
 }
 
 } // namespace untangle::test
