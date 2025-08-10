@@ -10,8 +10,7 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
-namespace untangle {
-namespace test {
+namespace untangle::test {
 
 class shape
 {
@@ -383,5 +382,4 @@ TEST(test_actuator, test_extract_results) {
   //! [test_extract_results]
 }
 
-} // namespace test
-} // namespace untangle
+} // namespace untangle::test
