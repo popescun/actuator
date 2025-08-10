@@ -189,9 +189,9 @@ void rotate_shapes(const std::vector<shape*>& shapes, int angle)
 // }
 
 TEST(test_actuator, test_polymorphism_using_shared_pointers) {
-  std::shared_ptr<triangle_mock> t{new triangle_mock};
-  std::shared_ptr<circle_mock> c{new circle_mock};
-  std::shared_ptr<square_mock> s{new square_mock};
+  const auto t = std::make_shared<triangle_mock>();
+  const auto c = std::make_shared<circle_mock>();
+  const auto s = std::make_shared<square_mock>();
 
   // using polymorphism
   std::vector<shape*> shapes;
@@ -260,9 +260,9 @@ TEST(test_actuator, test_polymorphism_using_pointers) {
 }
 
 TEST(test_actuator, test_assignment) {
-  std::shared_ptr<triangle_mock> t{new triangle_mock};
-  std::shared_ptr<circle_mock> c{new circle_mock};
-  std::shared_ptr<square_mock> s{new square_mock};
+  const auto t = std::make_shared<triangle_mock>();
+  const auto c = std::make_shared<circle_mock>();
+  const auto s = std::make_shared<square_mock>();
 
   EXPECT_CALL(*t, rotate(testing::_)).WillOnce(testing::Return());
   EXPECT_CALL(*c, rotate(testing::_)).WillOnce(testing::Return());
@@ -281,9 +281,9 @@ TEST(test_actuator, test_assignment) {
 }
 
 TEST(test_actuator, test_add) {
-  std::shared_ptr<triangle_mock> t{new triangle_mock};
-  std::shared_ptr<circle_mock> c{new circle_mock};
-  std::shared_ptr<square_mock> s{new square_mock};
+  const auto t = std::make_shared<triangle_mock>();
+  const auto c = std::make_shared<circle_mock>();
+  const auto s = std::make_shared<square_mock>();
 
   EXPECT_CALL(*t, rotate(testing::_)).Times(2).WillRepeatedly(testing::Return());
   EXPECT_CALL(*c, rotate(testing::_)).WillOnce(testing::Return());
@@ -302,9 +302,9 @@ TEST(test_actuator, test_add) {
 }
 
 TEST(test_actuator, test_remove) {
-  std::shared_ptr<triangle_mock> t{new triangle_mock};
-  std::shared_ptr<circle_mock> c{new circle_mock};
-  std::shared_ptr<square_mock> s{new square_mock};
+  const auto t = std::make_shared<triangle_mock>();
+  const auto c = std::make_shared<circle_mock>();
+  const auto s = std::make_shared<square_mock>();
 
   EXPECT_CALL(*t, rotate(testing::_)).Times(0);
   EXPECT_CALL(*c, rotate(testing::_)).WillOnce(testing::Return());
@@ -323,9 +323,9 @@ TEST(test_actuator, test_remove) {
 }
 
 TEST(test_actuator, test_remove_by_empty_action) {
-  std::shared_ptr<triangle_mock> t{new triangle_mock};
-  std::shared_ptr<circle_mock> c{new circle_mock};
-  std::shared_ptr<square_mock> s{new square_mock};
+  const auto t = std::make_shared<triangle_mock>();
+  const auto c = std::make_shared<circle_mock>();
+  const auto s = std::make_shared<square_mock>();
 
   EXPECT_CALL(*t, rotate(testing::_)).WillOnce(testing::Return());
   EXPECT_CALL(*c, rotate(testing::_)).WillOnce(testing::Return());
@@ -354,9 +354,9 @@ TEST(test_actuator, test_remove_by_empty_action) {
 }
 
 TEST(test_actuator, test_invalid_action) {
-  std::shared_ptr<triangle_mock> t{new triangle_mock};
-  std::shared_ptr<circle_mock> c{new circle_mock};
-  std::shared_ptr<square_mock> s{new square_mock};
+  const auto t = std::make_shared<triangle_mock>();
+  auto c = std::make_shared<circle_mock>();
+  const auto s = std::make_shared<square_mock>();
 
   EXPECT_CALL(*t, rotate(testing::_)).WillOnce(testing::Return());
   EXPECT_CALL(*c, rotate(testing::_)).Times(0);
@@ -376,9 +376,9 @@ TEST(test_actuator, test_invalid_action) {
 
 TEST(test_actuator, test_extract_results) {
   //! [test_extract_results]
-  std::shared_ptr<triangle> t(new triangle);
-  std::shared_ptr<circle> c(new circle);
-  std::shared_ptr<square> s(new square);
+  const auto t = std::make_shared<triangle>();
+  const auto c = std::make_shared<circle>();
+  const auto s = std::make_shared<square>();
 
   auto action1 = untangle::bind(t, &triangle::height_in);
   auto action2 = untangle::bind(c, &circle::height_in);
@@ -405,9 +405,9 @@ TEST(test_actuator, test_extract_results) {
 TEST(test_actuator, test_void_return_no_args)
 {
   //! [test_void_return_no_args]
-  std::shared_ptr<triangle_mock> t{new triangle_mock};
-  std::shared_ptr<circle_mock> c{new circle_mock};
-  std::shared_ptr<square_mock> s{new square_mock};
+  const auto t = std::make_shared<triangle_mock>();
+  const auto c = std::make_shared<circle_mock>();
+  const auto s = std::make_shared<square_mock>();
 
   EXPECT_CALL(*t, test_vr_no_args).Times(1);
   EXPECT_CALL(*c, test_vr_no_args).Times(1);
@@ -431,9 +431,9 @@ TEST(test_actuator, test_void_return_no_args)
 TEST(test_actuator, test_void_return_and_args)
 {
   //! [test_void_return_and_args]
-  std::shared_ptr<triangle_mock> t{new triangle_mock};
-  std::shared_ptr<circle_mock> c{new circle_mock};
-  std::shared_ptr<square_mock> s{new square_mock};
+  const auto t = std::make_shared<triangle_mock>();
+  const auto c = std::make_shared<circle_mock>();
+  const auto s = std::make_shared<square_mock>();
 
   EXPECT_CALL(*t, test_vr_args).Times(1);
   EXPECT_CALL(*c, test_vr_args).Times(1);
