@@ -1,9 +1,9 @@
 /**
  * @brief Interface to \ref untangle::actuator function object.
  *
- * @file connect.h
- * @author Nicu Popescu
- * @date 2018 - 2021
+ * @file actuator.hpp
+ * @author Nicolae Popescu
+ * @date 2018 - 2025
  */
 #pragma once
 

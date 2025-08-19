@@ -5,7 +5,7 @@
  * @author Nicu Popescu
  * @date 2021
  */
-#include <actuator.h>
+#include <actuator.hpp>
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
