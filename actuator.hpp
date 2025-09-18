@@ -1,5 +1,5 @@
 /**
- * @brief Interface to \ref untangle::actuator function object.
+ * @brief Interface to \ref untangle::actuator functor.
  *
  * @file actuator.hpp
  * @author Nicolae Popescu
@@ -42,7 +42,7 @@ struct invalid_action : private std::exception
 };
 
 /**
- * @brief An actuator is a function object that can trigger a dynamic list of actions (of type std::function<...>).
+ * @brief An actuator is a functor that can trigger a dynamic list of actions (of type std::function<...>).
  *
  *@remark An actuator object can be constructed with an initial list of actions by \ref connect().
  *
