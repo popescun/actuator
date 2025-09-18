@@ -26,7 +26,7 @@ namespace untangle
  * @brief Invalid action exception.
  *
  * @remark An action may be provided as a binding to a class function member, by using \ref bind().
- *         When the class object gets invalid, invoking the action will raise an exception of this type.
+ *         When the class object gets invalid, invoking the action will raise an exception to this type.
  *
  */
 struct invalid_action : private std::exception
@@ -63,7 +63,7 @@ struct actuator final
   /**
    * @brief Results container type.
    *
-   * It holds the return values of the actions that have a non void return type.
+   * It holds the return values of the actions that have a non-void return type.
    * Upon the actuator invocation, the returns can be extracted from \ref results.
    */
   using resultsT = std::vector<typename resultT::type>;
@@ -248,7 +248,7 @@ struct actuator final
   }
 
   /**
-   * @brief SFINAE for non void return.
+   * @brief SFINAE for non-void return.
    *
    */
   template<typename T, typename ...Args>
@@ -340,10 +340,10 @@ struct function_remove_const<R(Args...)const>
 /**
  * @brief Binding to a class function member.
  *
- * It returns an std::function(lambda) that wraps the function member. It may be used to provide an action for \ref connect() or \ref actuator::add().
+ * It returns a std::function(lambda) that wraps the function member. It may be used to provide an action for \ref connect() or \ref actuator::add().
  *
  * @remark It requires a shared pointer to the class type. This shared pointer is captured internally in a lambda, and it can be checked if the shared object is valid.
- * Therefore it is safe to use actions provided by this binding inside an \ref actuator.
+ * Therefore, it is safe to use actions provided by this binding inside an \ref actuator.
  *
  * @param obj - Class object.
  * @param method - Pointer to function member. It is specified as &<class type>::<function member>
@@ -375,7 +375,7 @@ static actionT bind(const std::shared_ptr<classT>& obj, T classT::* method)
  *
  * @attention It is not safe to use this binding to provide actions to an \ref actuator.The class object is provided through a pointer type. This pointer is captured internally in a lambda, so it can not be checked if it gets null.
  *
- * @remark It is provided for conveniency of use: within a class it is safe to create bindings through <B>this</B> pointer.
+ * @remark It is provided for convenience of use: within a class it is safe to create bindings through <B>this</B> pointer.
  *
  * @param obj - Pointer to class.
  * @param method - Pointer to function member. It is specified as &<class type>::<function member>
