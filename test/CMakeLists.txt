@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.5)
+cmake_minimum_required(VERSION 4.1)
 
 set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -15,7 +15,7 @@ if(result)
 endif()
 execute_process(COMMAND ${CMAKE_COMMAND} --build .
   RESULT_VARIABLE result
-  WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/googletest-download )
+  WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/googletest-download)
 if(result)
   message(FATAL_ERROR "Build step for googletest failed: ${result}")
 endif()
