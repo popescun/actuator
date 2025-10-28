@@ -7,7 +7,6 @@
  */
 #pragma once
 
-#include <utility>
 #include <vector>
 #include <list>
 #include <map>
