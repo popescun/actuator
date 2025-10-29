@@ -1,14 +1,19 @@
 # actuator
 
-An "actuator" is a generic callable that may invoke a list of "actions"(callables of type std::function<...>).
+An `actuator` is a generic callable that may invoke a list of `actions`(callables of type `std::function<...>`).
 
 Its goal is to provide a light and simple mechanism to connect components that want to communicate with each other. It works similar as the "signal and slots" mechanisms from other frameworks, but much simplified.
+
+Modern programming languages do not offer class intrinsic interfaces that would improve significantly how objects are connected and how they communicate. 
+Instead, languages, like `C++`, are using external interfaces, that are not only cluttering the code, but they don't feel "natural" as they are opposed to 
+what an interface is in reality. Basically the objects and interfaces are not separated, and the interface is intrinsic to the object(think on the cogs in a mechanism). 
+A generic callable is an attempt to mitigate this problem. [async](https://github.com/popescun/async) implementation is such use case.
 
 An actuator provides the results of all actions in a vector, in the same order as the actions were added.
 
 ### Example: how to use actuator instead of polymorphism
 
-```cpp
+```c++
 void rotate_shapes(const std::vector<shape*>& shapes, int angle)
 {
   for (const auto& s : shapes)
