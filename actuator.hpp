@@ -241,7 +241,7 @@ struct actuator final
    *
    */
   template<typename T, typename ...Args>
-  typename std::enable_if_t<std::is_void<typename T::result_type>::value, typename T::result_type> select_actuate(T* action, Args&&... args)
+  std::enable_if_t<std::is_void_v<typename T::result_type>, typename T::result_type> select_actuate(T* action, Args&&... args)
   {
      (*action)(std::forward<Args>(args)...);
   }
@@ -251,7 +251,7 @@ struct actuator final
    *
    */
   template<typename T, typename ...Args>
-  typename std::enable_if_t<!std::is_void<typename T::result_type>::value, typename T::result_type> select_actuate(T* action, Args&&... args)
+  std::enable_if_t<!std::is_void_v<typename T::result_type>, typename T::result_type> select_actuate(T* action, Args&&... args)
   {
     results.push_back((*action)(std::forward<Args>(args)...));
     return typename T::result_type();
