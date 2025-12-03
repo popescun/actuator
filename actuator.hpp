@@ -126,7 +126,15 @@ struct actuator final
       {
         try
         {
-          select_actuate(action, std::forward<Args>(args)...);
+          // todo: to be removed?
+          // with SFINAE
+          // select_actuate(action, std::forward<Args>(args)...);
+
+          if constexpr (std::is_same_v<typename actionT::result_type, void>) {
+            (*action)(std::forward<Args>(args)...);
+          } else {
+            results.push_back((*action)(std::forward<Args>(args)...));
+          }
         }
         catch (const invalid_action& ia)
         {
