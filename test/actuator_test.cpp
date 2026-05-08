@@ -132,61 +132,54 @@ void rotate_shapes(const std::vector<shape*>& shapes, int angle)
   }
 }
 
-// void test_void_return_and_args()
-// {
-//   //! [test_void_return_and_args]
-//   std::shared_ptr<triangle> t(new triangle);
-//   std::shared_ptr<circle> c(new circle);
-//   std::shared_ptr<square> s(new square);
+TEST(test_actuator, test_polymorphism_named_actions) {
+  //! [test_polymorphism_named_actions2]
+  auto t = std::make_shared<triangle_mock>();
+  const auto c = std::make_shared<circle_mock>();
+  const auto s = std::make_shared<square_mock>();
 
-//   auto action1 = untangle::bind(t, &triangle::test_vr_args);
-//   auto action2 = untangle::bind(c, &circle::test_vr_args);
-//   auto action3 = untangle::bind(s, &square::test_vr_args);
+  // using polymorphism
+  std::vector<shape*> shapes;
+  shapes.push_back(t.get());
+  shapes.push_back(c.get());
+  shapes.push_back(s.get());
 
-//   auto actuator_vr_args = untangle::connect(action1, action2, action3);
+  EXPECT_CALL(*t, rotate(testing::_)).WillOnce(testing::Return());
+  EXPECT_CALL(*c, rotate(testing::_)).WillOnce(testing::Return());
+  EXPECT_CALL(*s, rotate(testing::_)).WillOnce(testing::Return());
+  rotate_shapes(shapes, 10);
+  testing::Mock::VerifyAndClearExpectations(t.get());
+  testing::Mock::VerifyAndClearExpectations(c.get());
+  testing::Mock::VerifyAndClearExpectations(s.get());
 
-//   std::cout << "\nvoid return adn arguments\n" << std::endl;
-//   actuator_vr_args(90, 100);
-//   //! [test_void_return_and_args]
-// }
+  // using named actuator
+  auto action1 = untangle::bind(t, &triangle_mock::rotate);
+  auto action2 = untangle::bind(c, &circle_mock::rotate);
+  auto action3 = untangle::bind(s, &square_mock::rotate);
 
-// void test_polymorphism_named_actions()
-// {
-//   //! [test_polymorphism_named_actions2]
-//   // How to use actuator instead of polymorphism.
+  auto actuator_rotate = untangle::connect(std::make_pair(std::string("triangle"), &action1),
+                                           std::make_pair(std::string("circle"), &action2),
+                                           std::make_pair(std::string("square"), &action3));
 
-//   std::shared_ptr<triangle> t(new triangle);
-//   std::shared_ptr<circle> c(new circle);
-//   std::shared_ptr<square> s(new square);
+  actuator_rotate.remove("circle");
+  EXPECT_FALSE(actuator_rotate.has_action("circle"));
 
-//   // using polymorphism
-//   std::vector<shape*> shapes;
-//   shapes.push_back(t.get());
-//   shapes.push_back(c.get());
-//   shapes.push_back(s.get());
+  actuator_rotate.add("circle", &action2);
+  EXPECT_TRUE(actuator_rotate.has_action("circle"));
 
-//   std::cout << "using polymorphism\n" << std::endl;
-//   rotate_shapes(shapes, 10);
+  EXPECT_CALL(*c, rotate(20)).WillOnce(testing::Return());
+  actuator_rotate.invokeAction("circle", 20);
+  testing::Mock::VerifyAndClearExpectations(c.get());
 
-//   // using actuator
-//   auto action1 = untangle::bind(t, &triangle::rotate);
-//   auto action2 = untangle::bind(c, &circle::rotate);
-//   auto action3 = untangle::bind(s, &square::rotate);
-
-//   auto actuator_rotate = untangle::connect(std::make_pair("triangle", &action1),
-//                                            std::make_pair("circle", &action2),
-//                                            std::make_pair("square", &action3));
-//   actuator_rotate.remove("circle");
-//   actuator_rotate.add("circle", &action2);
-//   std::cout << "\nusing named actuator\n" << std::endl;
-//   auto hasCircle = actuator_rotate.has_action("circle");
-//   std::cout << "has circle:" << hasCircle << std::endl;
-//   actuator_rotate.invokeAction("circle", 20);
-
-//   t.reset();
-//   actuator_rotate.invokeAction("triangle", 20);
-//   //! [test_polymorphism_named_actions2]
-// }
+  // invalidate triangle: invokeAction must detect the dead binding and erase it
+  EXPECT_CALL(*t, rotate(testing::_)).Times(0);
+  auto* raw_t = t.get();
+  t.reset();
+  actuator_rotate.invokeAction("triangle", 20);
+  EXPECT_FALSE(actuator_rotate.has_action("triangle"));
+  testing::Mock::VerifyAndClearExpectations(raw_t);
+  //! [test_polymorphism_named_actions2]
+}
 
 TEST(test_actuator, test_polymorphism_using_shared_pointers) {
   const auto t = std::make_shared<triangle_mock>();
