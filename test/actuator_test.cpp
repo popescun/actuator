@@ -459,6 +459,36 @@ TEST(test_actuator, test_invalid_action) {
   testing::Mock::VerifyAndClearExpectations(s.get());
 }
 
+TEST(test_actuator, test_dead_action_leaves_caller_function_intact) {
+  const auto t = std::make_shared<triangle_mock>();
+  auto c = std::make_shared<circle_mock>();
+
+  EXPECT_CALL(*t, rotate(testing::_)).WillOnce(testing::Return());
+  EXPECT_CALL(*c, rotate(testing::_)).Times(0);
+  auto action1 = untangle::bind(t, &triangle_mock::rotate);
+  auto action2 = untangle::bind(c, &circle_mock::rotate);
+
+  auto actuator_rotate = untangle::connect(action1, action2);
+
+  // kill the circle binding, then trigger the actuator
+  c.reset();
+  actuator_rotate(60);
+
+  // the actuator may drop the dead action from its OWN list ...
+  EXPECT_EQ(actuator_rotate.actions.size(), 1);
+
+  // ... but action2 is owned by this test, not by the actuator.
+  // The actuator must not reach through its actionT* and empty it.
+  EXPECT_TRUE(static_cast<bool>(action2))
+      << "the actuator emptied a std::function it does not own";
+
+  // Consequence of the same defect: a caller re-invoking its own action should still
+  // get the dead-binding report, not std::bad_function_call from an emptied function.
+  EXPECT_THROW(action2(20), untangle::invalid_action);
+
+  testing::Mock::VerifyAndClearExpectations(t.get());
+}
+
 //! Returns an action bound to a shared_ptr that dies when this function returns.
 //! The action must outlive the object safely.
 std::function<int()> make_height_action()

@@ -131,6 +131,12 @@ struct actuator final
   void operator()(Args&&... args)
   {
     results.clear();
+
+    // Dead bindings are collected here and dropped after the loop.
+    // The actuator does not own the actions it points at, so it must never
+    // write through actionT* into a std::function belonging to the caller.
+    std::vector<actionT*> dead_actions;
+
     for (const auto& action : actions)
     {
       if (action)
@@ -150,14 +156,15 @@ struct actuator final
         catch (const invalid_action& ia)
         {
           std::cout << ia.what.c_str() << std::endl;
-          *action = nullptr;
+          dead_actions.push_back(action);
         }
       }
     }
-    actions.remove_if([](const auto& action)
+
+    for (const auto& dead_action : dead_actions)
     {
-      return (*action == nullptr);
-    });
+      actions.remove(dead_action);
+    }
   }
 
   /**
