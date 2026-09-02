@@ -360,8 +360,10 @@ struct function_remove_const<R(Args...)const>
  *
  * It returns a std::function(lambda) that wraps the function member. It may be used to provide an action for \ref connect() or \ref actuator::add().
  *
- * @remark It requires a shared pointer to the class type. This shared pointer is captured internally in a lambda, and it can be checked if the shared object is valid.
- * Therefore, it is safe to use actions provided by this binding inside an \ref actuator.
+ * @remark It requires a shared pointer to the class type. A std::weak_ptr to it is captured internally in a lambda,
+ * so the binding can always check whether the shared object is still alive without keeping it alive itself.
+ * Therefore, it is safe to use actions provided by this binding inside an \ref actuator, and safe for the action to
+ * outlive the caller's shared pointer.
  *
  * @param obj - Class object.
  * @param method - Pointer to function member. It is specified as &<class type>::<function member>
@@ -374,11 +376,12 @@ struct function_remove_const<R(Args...)const>
 template <typename classT, typename T, typename actionT = std::function<typename function_remove_const<T>::type>>
 static actionT bind(const std::shared_ptr<classT>& obj, T classT::* method)
 {
-  return [&obj, method](auto&&... args) mutable -> typename actionT::result_type
+  return [wp = std::weak_ptr<classT>(obj), method](auto&&... args) mutable -> typename actionT::result_type
   {
-    if (obj)
+    // lock() also keeps the object alive for the duration of the call
+    if (const auto obj_ = wp.lock())
     {
-      return ((*obj).*method)(std::forward<decltype(args)>(args)...);
+      return ((*obj_).*method)(std::forward<decltype(args)>(args)...);
     }
     else
     {

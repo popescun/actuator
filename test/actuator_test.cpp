@@ -24,6 +24,9 @@ public:
 class triangle : public shape
 {
 public:
+  ~triangle() override {
+    std::cout << "triangle::~triangle" << std::endl;
+  }
   void rotate(int angle) const override {
     std::cout << "triangle::rotate " << angle << std::endl;
   }
@@ -454,6 +457,45 @@ TEST(test_actuator, test_invalid_action) {
   testing::Mock::VerifyAndClearExpectations(t.get());
   testing::Mock::VerifyAndClearExpectations(c.get());
   testing::Mock::VerifyAndClearExpectations(s.get());
+}
+
+//! Returns an action bound to a shared_ptr that dies when this function returns.
+//! The action must outlive the object safely.
+std::function<int()> make_height_action()
+{
+  const auto t = std::make_shared<triangle>();
+  t->height_in(7);
+  return untangle::bind(t, &triangle::height_out);
+}
+
+TEST(test_actuator, test_bind_temporary_shared_ptr) {
+  // The temporary dies at the end of the full expression that creates the binding.
+  // Invoking it must report a dead binding, not read freed memory.
+  auto action = untangle::bind(std::make_shared<triangle>(), &triangle::height_out);
+  EXPECT_THROW(action(), untangle::invalid_action);
+}
+
+TEST(test_actuator, test_bind_shared_ptr_dead_after_scope) {
+  // The shared_ptr was local to make_height_action() and is gone by now.
+  auto action = make_height_action();
+
+  EXPECT_THROW(action(), untangle::invalid_action);
+}
+
+TEST(test_actuator, test_bind_shared_ptr_kept_alive_during_call) {
+  // A live owner must still work, and must keep working after the binding is copied
+  // around -- the action must not depend on the caller's variable staying in scope.
+  std::function<int()> action;
+  {
+    const auto t = std::make_shared<triangle>();
+    t->height_in(42);
+    action = untangle::bind(t, &triangle::height_out);
+
+    // owner still alive here
+    EXPECT_EQ(action(), 42);
+  }
+  // owner gone: dead binding, reported cleanly
+  EXPECT_THROW(action(), untangle::invalid_action);
 }
 
 TEST(test_actuator, test_extract_results) {
