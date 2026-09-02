@@ -28,16 +28,24 @@ namespace untangle
  *         When the class object gets invalid, invoking the action will raise an exception to this type.
  *
  */
-struct invalid_action : private std::exception
+struct invalid_action : std::exception
 {
   /**
    * @brief Construct a new invalid action object.
    *
    * @param text - A message text, describing the reason of this exception.
    */
-  explicit invalid_action(std::string  text) : what(std::move(text)){}
+  explicit invalid_action(std::string text) : message(std::move(text)){}
 
-  std::string what; //!< It holds the message text.
+  /**
+   * @brief The message text describing the reason of this exception.
+   *
+   * @return const char* - The message text.
+   */
+  const char* what() const noexcept override { return message.c_str(); }
+
+  private:
+   std::string message; //!< It holds the message text.
 };
 
 /**
@@ -162,7 +170,7 @@ struct actuator final
       }
       catch (const invalid_action& ia)
       {
-        std::cout << ia.what.c_str() << std::endl;
+        std::cout << ia.what() << std::endl;
         dead_actions.push_back(action);
       }
     }
@@ -192,7 +200,7 @@ struct actuator final
       }
       catch (const invalid_action& ia)
       {
-        std::cout << ia.what.c_str() << std::endl;
+        std::cout << ia.what() << std::endl;
         map_actions.erase(name);
       }
     }

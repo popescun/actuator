@@ -480,6 +480,30 @@ TEST(test_actuator, test_reset) {
   EXPECT_EQ(actuator_height.results.size(), 0);
 }
 
+TEST(test_actuator, test_invalid_action_is_catchable_as_std_exception) {
+  bool caught_as_std_exception = false;
+  std::string message;
+
+  try
+  {
+    throw untangle::invalid_action("boom");
+  }
+  catch (const std::exception& e)
+  {
+    caught_as_std_exception = true;
+    message = e.what();
+  }
+  catch (...)
+  {
+    // private inheritance makes the base inaccessible, so the handler above is skipped
+  }
+
+  EXPECT_TRUE(caught_as_std_exception)
+      << "invalid_action is not catchable as std::exception";
+  EXPECT_EQ(message, "boom")
+      << "a generic handler must see the real message, not a placeholder";
+}
+
 TEST(test_actuator, test_invalid_action) {
   const auto t = std::make_shared<triangle_mock>();
   auto c = std::make_shared<circle_mock>();
