@@ -104,6 +104,7 @@ struct actuator final
 
     actions = other.actions;
     mapActions = other.mapActions;
+    results = other.results;
     return *this;
   }
 

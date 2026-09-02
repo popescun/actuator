@@ -302,6 +302,30 @@ TEST(test_actuator, test_self_assignment) {
   testing::Mock::VerifyAndClearExpectations(c.get());
 }
 
+TEST(test_actuator, test_assignment_copies_results) {
+  const auto t = std::make_shared<triangle>();
+  const auto c = std::make_shared<circle>();
+
+  t->height_in(11);
+  c->height_in(22);
+
+  auto action1 = untangle::bind(t, &triangle::height_out);
+  auto action2 = untangle::bind(c, &circle::height_out);
+
+  auto source = untangle::connect(action1, action2);
+  source();
+  ASSERT_THAT(source.results, testing::ElementsAre(11, 22));
+
+  // copy-assignment must carry the results over, the way copy-construction does
+  untangle::actuator<decltype(source.type())> assigned;
+  assigned = source;
+  EXPECT_THAT(assigned.results, testing::ElementsAre(11, 22));
+
+  // the two copy paths must produce indistinguishable objects
+  untangle::actuator<decltype(source.type())> constructed = source;
+  EXPECT_EQ(assigned.results, constructed.results);
+}
+
 TEST(test_actuator, test_add) {
   const auto t = std::make_shared<triangle_mock>();
   const auto c = std::make_shared<circle_mock>();
