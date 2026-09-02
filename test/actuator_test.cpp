@@ -346,6 +346,42 @@ TEST(test_actuator, test_remove_by_empty_action) {
   testing::Mock::VerifyAndClearExpectations(s.get());
 }
 
+TEST(test_actuator, test_reset) {
+  const auto t = std::make_shared<triangle_mock>();
+  const auto c = std::make_shared<circle_mock>();
+
+  // nothing may fire after a reset
+  EXPECT_CALL(*t, rotate(testing::_)).Times(0);
+  EXPECT_CALL(*c, rotate(testing::_)).Times(0);
+  auto action1 = untangle::bind(t, &triangle_mock::rotate);
+  auto action2 = untangle::bind(c, &circle_mock::rotate);
+
+  auto actuator_rotate = untangle::connect(action1);
+  actuator_rotate.add("circle", &action2);
+  EXPECT_TRUE(actuator_rotate.is_connected());
+  EXPECT_TRUE(actuator_rotate.has_action("circle"));
+
+  actuator_rotate.reset();
+
+  EXPECT_FALSE(actuator_rotate.is_connected());
+  EXPECT_FALSE(actuator_rotate.has_action("circle"));
+  EXPECT_EQ(actuator_rotate.actions.size(), 0);
+  actuator_rotate(10);
+
+  testing::Mock::VerifyAndClearExpectations(t.get());
+  testing::Mock::VerifyAndClearExpectations(c.get());
+
+  // reset must clear the stored results too
+  const auto tr = std::make_shared<triangle>();
+  auto action3 = untangle::bind(tr, &triangle::height_out);
+  auto actuator_height = untangle::connect(action3);
+  actuator_height();
+  EXPECT_EQ(actuator_height.results.size(), 1);
+
+  actuator_height.reset();
+  EXPECT_EQ(actuator_height.results.size(), 0);
+}
+
 TEST(test_actuator, test_invalid_action) {
   const auto t = std::make_shared<triangle_mock>();
   auto c = std::make_shared<circle_mock>();

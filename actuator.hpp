@@ -104,9 +104,16 @@ struct actuator final
     return *this;
   }
 
+  /**
+   * @brief Remove all actions and any stored results.
+   *
+   * After this call the actuator is empty: actuator::is_connected() returns false.
+   */
   void reset()
   {
-    actions.reset();
+    actions.clear();
+    mapActions.clear();
+    results.clear();
   }
 
   /**
