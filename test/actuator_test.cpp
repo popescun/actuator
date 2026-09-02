@@ -402,6 +402,48 @@ TEST(test_actuator, test_remove_by_empty_action) {
   testing::Mock::VerifyAndClearExpectations(s.get());
 }
 
+TEST(test_actuator, test_empty_action_added_directly) {
+  const auto t = std::make_shared<triangle_mock>();
+
+  EXPECT_CALL(*t, rotate(70)).WillOnce(testing::Return());
+  auto action1 = untangle::bind(t, &triangle_mock::rotate);
+
+  // connect() filters empty actions out at construction; add() does not,
+  // so this is the only way an empty std::function reaches operator().
+  std::function<void(int)> empty_action;
+
+  untangle::actuator<std::function<void(int)>> actuator_rotate;
+  actuator_rotate.add(&action1);
+  actuator_rotate.add(&empty_action);
+
+  // invoking an empty std::function throws std::bad_function_call, which is not
+  // an invalid_action and so escapes operator() and terminates the process
+  EXPECT_NO_THROW(actuator_rotate(70));
+
+  // the unusable action must be dropped, the live one kept
+  EXPECT_EQ(actuator_rotate.actions.size(), 1);
+
+  testing::Mock::VerifyAndClearExpectations(t.get());
+}
+
+TEST(test_actuator, test_null_action_added_directly) {
+  const auto t = std::make_shared<triangle_mock>();
+
+  EXPECT_CALL(*t, rotate(80)).WillOnce(testing::Return());
+  auto action1 = untangle::bind(t, &triangle_mock::rotate);
+
+  untangle::actuator<std::function<void(int)>> actuator_rotate;
+  actuator_rotate.add(&action1);
+  actuator_rotate.add(nullptr);
+
+  EXPECT_NO_THROW(actuator_rotate(80));
+
+  // a null entry can never be invoked, so it must not linger in the list
+  EXPECT_EQ(actuator_rotate.actions.size(), 1);
+
+  testing::Mock::VerifyAndClearExpectations(t.get());
+}
+
 TEST(test_actuator, test_reset) {
   const auto t = std::make_shared<triangle_mock>();
   const auto c = std::make_shared<circle_mock>();

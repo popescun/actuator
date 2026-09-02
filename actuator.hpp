@@ -139,25 +139,31 @@ struct actuator final
 
     for (const auto& action : actions)
     {
-      if (action)
+      // A null pointer or an empty std::function can never be invoked. Calling an
+      // empty one throws std::bad_function_call, which is not an invalid_action and
+      // would escape this operator, so drop it instead of invoking it.
+      if (action == nullptr || !*action)
       {
-        try
-        {
-          // todo: to be removed?
-          // with SFINAE
-          // select_actuate(action, std::forward<Args>(args)...);
+        dead_actions.push_back(action);
+        continue;
+      }
 
-          if constexpr (std::is_same_v<typename action_t::result_type, void>) {
-            (*action)(std::forward<Args>(args)...);
-          } else {
-            results.push_back((*action)(std::forward<Args>(args)...));
-          }
+      try
+      {
+        // todo: to be removed?
+        // with SFINAE
+        // select_actuate(action, std::forward<Args>(args)...);
+
+        if constexpr (std::is_same_v<typename action_t::result_type, void>) {
+          (*action)(std::forward<Args>(args)...);
+        } else {
+          results.push_back((*action)(std::forward<Args>(args)...));
         }
-        catch (const invalid_action& ia)
-        {
-          std::cout << ia.what.c_str() << std::endl;
-          dead_actions.push_back(action);
-        }
+      }
+      catch (const invalid_action& ia)
+      {
+        std::cout << ia.what.c_str() << std::endl;
+        dead_actions.push_back(action);
       }
     }
 
