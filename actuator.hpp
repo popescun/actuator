@@ -97,8 +97,11 @@ struct actuator final
    */
   actuator& operator=(const actuator& other)
   {
-    actions.clear();
-    mapActions.clear();
+    if (this == &other)
+    {
+      return *this;
+    }
+
     actions = other.actions;
     mapActions = other.mapActions;
     return *this;

@@ -273,6 +273,35 @@ TEST(test_actuator, test_assignment) {
   testing::Mock::VerifyAndClearExpectations(s.get());
 }
 
+TEST(test_actuator, test_self_assignment) {
+  const auto t = std::make_shared<triangle_mock>();
+  const auto c = std::make_shared<circle_mock>();
+
+  EXPECT_CALL(*t, rotate(30)).WillOnce(testing::Return());
+  EXPECT_CALL(*c, rotate(30)).WillOnce(testing::Return());
+  auto action1 = untangle::bind(t, &triangle_mock::rotate);
+  auto action2 = untangle::bind(c, &circle_mock::rotate);
+
+  auto actuator_rotate = untangle::connect(action1, action2);
+  actuator_rotate.add("circle", &action2);
+  ASSERT_EQ(actuator_rotate.actions.size(), 2);
+  ASSERT_TRUE(actuator_rotate.has_action("circle"));
+
+  // self-assignment must be a no-op, not a wipe.
+  // assigned through an alias so the compiler does not flag the self-assignment (-Wself-assign-overloaded).
+  const auto& alias = actuator_rotate;
+  actuator_rotate = alias;
+
+  EXPECT_EQ(actuator_rotate.actions.size(), 2);
+  EXPECT_TRUE(actuator_rotate.has_action("circle"));
+
+  // the surviving actions must still be callable
+  actuator_rotate(30);
+
+  testing::Mock::VerifyAndClearExpectations(t.get());
+  testing::Mock::VerifyAndClearExpectations(c.get());
+}
+
 TEST(test_actuator, test_add) {
   const auto t = std::make_shared<triangle_mock>();
   const auto c = std::make_shared<circle_mock>();
