@@ -376,7 +376,7 @@ struct function_remove_const<R(Args...)const>
 template <typename classT, typename T, typename actionT = std::function<typename function_remove_const<T>::type>>
 static actionT bind(const std::shared_ptr<classT>& obj, T classT::* method)
 {
-  return [wp = std::weak_ptr<classT>(obj), method](auto&&... args) mutable -> typename actionT::result_type
+  return [wp = std::weak_ptr<classT>(obj), method](auto&&... args) -> typename actionT::result_type
   {
     // lock() also keeps the object alive for the duration of the call
     if (const auto obj_ = wp.lock())
