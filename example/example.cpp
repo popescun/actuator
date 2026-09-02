@@ -298,12 +298,12 @@ void test_polymorphism_named_actions()
   actuator_rotate.remove("circle");
   actuator_rotate.add("circle", &action2);
   std::cout << "\nusing named actuator\n" << std::endl;
-  auto hasCircle = actuator_rotate.has_action("circle");
-  std::cout << "has circle:" << hasCircle << std::endl;
-  actuator_rotate.invokeAction("circle", 20);
+  auto has_circle = actuator_rotate.has_action("circle");
+  std::cout << "has circle:" << has_circle << std::endl;
+  actuator_rotate.invoke_action("circle", 20);
 
   t.reset();
-  actuator_rotate.invokeAction("triangle", 20);
+  actuator_rotate.invoke_action("triangle", 20);
   //! [test_polymorphism_named_actions2]
 }
 

@@ -171,14 +171,14 @@ TEST(test_actuator, test_polymorphism_named_actions) {
   EXPECT_TRUE(actuator_rotate.has_action("circle"));
 
   EXPECT_CALL(*c, rotate(20)).WillOnce(testing::Return());
-  actuator_rotate.invokeAction("circle", 20);
+  actuator_rotate.invoke_action("circle", 20);
   testing::Mock::VerifyAndClearExpectations(c.get());
 
-  // invalidate triangle: invokeAction must detect the dead binding and erase it
+  // invalidate triangle: invoke_action must detect the dead binding and erase it
   EXPECT_CALL(*t, rotate(testing::_)).Times(0);
   auto* raw_t = t.get();
   t.reset();
-  actuator_rotate.invokeAction("triangle", 20);
+  actuator_rotate.invoke_action("triangle", 20);
   EXPECT_FALSE(actuator_rotate.has_action("triangle"));
   testing::Mock::VerifyAndClearExpectations(raw_t);
   //! [test_polymorphism_named_actions2]
@@ -478,7 +478,7 @@ TEST(test_actuator, test_dead_action_leaves_caller_function_intact) {
   EXPECT_EQ(actuator_rotate.actions.size(), 1);
 
   // ... but action2 is owned by this test, not by the actuator.
-  // The actuator must not reach through its actionT* and empty it.
+  // The actuator must not reach through its action_t* and empty it.
   EXPECT_TRUE(static_cast<bool>(action2))
       << "the actuator emptied a std::function it does not own";
 

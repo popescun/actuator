@@ -45,9 +45,9 @@ struct invalid_action : private std::exception
  *
  *@remark An actuator object can be constructed with an initial list of actions by \ref connect().
  *
- * @tparam actionT Action type. It is specified as std::function<...>.
+ * @tparam action_t Action type. It is specified as std::function<...>.
  */
-template<typename actionT>
+template<typename action_t>
 struct actuator final
 {
   /**
@@ -56,20 +56,20 @@ struct actuator final
    * @remark The elements stored are of pointer type, that is required to implement the remove() operation.
    * std::function supports only equality operator for nullptr (two std::function(s) can not compare).
    */
-  using actionsT = std::list<actionT*>;
-  using mapActionsT = std::map<std::string, actionT*>;
-  using resultT = std::conditional<std::is_void<typename actionT::result_type>::value, int, typename actionT::result_type>;
+  using actions_t = std::list<action_t*>;
+  using map_actions_t = std::map<std::string, action_t*>;
+  using result_t = std::conditional<std::is_void<typename action_t::result_type>::value, int, typename action_t::result_type>;
   /**
    * @brief Results container type.
    *
    * It holds the return values of the actions that have a non-void return type.
    * Upon the actuator invocation, the returns can be extracted from \ref results.
    */
-  using resultsT = std::vector<typename resultT::type>;
+  using results_t = std::vector<typename result_t::type>;
 
-  actionsT actions; //!< Actions list.
-  mapActionsT mapActions; //!< Actions list.
-  resultsT results; //!< Actions return values list.
+  actions_t actions; //!< Actions list.
+  map_actions_t map_actions; //!< Actions list.
+  results_t results; //!< Actions return values list.
 
   actuator() = default;
   ~actuator()
@@ -82,9 +82,9 @@ struct actuator final
    *
    * @note Intended to be used in expressions by `decltype(<actuator instance>.type()`
    *
-   * @return actionT
+   * @return action_t
    */
-  actionT type()
+  action_t type()
   {
     return nullptr;
   }
@@ -103,7 +103,7 @@ struct actuator final
     }
 
     actions = other.actions;
-    mapActions = other.mapActions;
+    map_actions = other.map_actions;
     results = other.results;
     return *this;
   }
@@ -116,7 +116,7 @@ struct actuator final
   void reset()
   {
     actions.clear();
-    mapActions.clear();
+    map_actions.clear();
     results.clear();
   }
 
@@ -134,8 +134,8 @@ struct actuator final
 
     // Dead bindings are collected here and dropped after the loop.
     // The actuator does not own the actions it points at, so it must never
-    // write through actionT* into a std::function belonging to the caller.
-    std::vector<actionT*> dead_actions;
+    // write through action_t* into a std::function belonging to the caller.
+    std::vector<action_t*> dead_actions;
 
     for (const auto& action : actions)
     {
@@ -147,7 +147,7 @@ struct actuator final
           // with SFINAE
           // select_actuate(action, std::forward<Args>(args)...);
 
-          if constexpr (std::is_same_v<typename actionT::result_type, void>) {
+          if constexpr (std::is_same_v<typename action_t::result_type, void>) {
             (*action)(std::forward<Args>(args)...);
           } else {
             results.push_back((*action)(std::forward<Args>(args)...));
@@ -174,11 +174,11 @@ struct actuator final
    * @param args - Arguments list must match the action arity.
    */
   template<typename ...Args>
-  void invokeAction(std::string name, Args&&... args)
+  void invoke_action(std::string name, Args&&... args)
   {
     results.clear();
-    const auto& it = mapActions.find(name);
-    if (it != mapActions.end())
+    const auto& it = map_actions.find(name);
+    if (it != map_actions.end())
     {
       try
       {
@@ -187,7 +187,7 @@ struct actuator final
       catch (const invalid_action& ia)
       {
         std::cout << ia.what.c_str() << std::endl;
-        mapActions.erase(name);
+        map_actions.erase(name);
       }
     }
   }
@@ -200,7 +200,7 @@ struct actuator final
    * Example:
    * \snippet test_actuator.cpp test_add
    */
-  void add(actionT* action)
+  void add(action_t* action)
   {
     actions.push_back(action);
   }
@@ -211,9 +211,9 @@ struct actuator final
    * @param name - Name of the action.
    * @param action - Action to be added.
    */
-  void add(std::string name, actionT* action)
+  void add(std::string name, action_t* action)
   {
-    mapActions.emplace(name, action);
+    map_actions.emplace(name, action);
   }
 
   /**
@@ -226,7 +226,7 @@ struct actuator final
    * Example:
    * \snippet test_actuator.cpp test_add
    */
-  void remove(const actionT* action)
+  void remove(const action_t* action)
   {
     actions.remove_if([&action](const auto& a)
     {
@@ -241,7 +241,7 @@ struct actuator final
    */
   void remove(const std::string& name)
   {
-    mapActions.erase(name);
+    map_actions.erase(name);
   }
 
   /**
@@ -250,16 +250,16 @@ struct actuator final
    * @return true - if the actuator::actions list is not empty.
    * @return false - if the actuator::actions list is empty.
    */
-  bool is_connected() { return !actions.empty() || !mapActions.empty(); }
+  bool is_connected() { return !actions.empty() || !map_actions.empty(); }
 
   /**
    * @brief Check if there is certain named action.
    *
    * @param name - Name associated with the action.
-   * @return true - if name can be found in actuator::mapActions
-   * @return false - if name can not be found in actuator::mapActions
+   * @return true - if name can be found in actuator::map_actions
+   * @return false - if name can not be found in actuator::map_actions
    */
-  bool has_action(std::string name) { return mapActions.find(name) != mapActions.end(); }
+  bool has_action(std::string name) { return map_actions.find(name) != map_actions.end(); }
 
   private:
    /**
@@ -297,11 +297,11 @@ struct actuator final
  * \snippet test_actuator.cpp test_polymorphism1
  * \snippet test_actuator.cpp test_polymorphism2
  */
-template<typename actionT, typename ...Actions>
-auto connect(actionT& A1, Actions&... An)
+template<typename action_t, typename ...Actions>
+auto connect(action_t& A1, Actions&... An)
 {
-  using actuatorT = untangle::actuator<actionT>;
-  actuatorT actuator;
+  using actuator_t = untangle::actuator<action_t>;
+  actuator_t actuator;
   actuator.actions = {&A1, &An...};
 
   // remove empty actions
@@ -312,32 +312,32 @@ auto connect(actionT& A1, Actions&... An)
   return std::move(actuator);
 }
 
-template <typename actuatorT>
-void removeEmptyActions(actuatorT& actuator)
+template <typename actuator_t>
+void remove_empty_actions(actuator_t& actuator)
 {
-  std::vector<typename actuatorT::mapActionsT::const_iterator> removableIterators;
-  for (auto it = actuator.mapActions.begin(); it != actuator.mapActions.end(); ++it)
+  std::vector<typename actuator_t::map_actions_t::const_iterator> removable_iterators;
+  for (auto it = actuator.map_actions.begin(); it != actuator.map_actions.end(); ++it)
   {
     if (it->second == nullptr)
     {
-      removableIterators.push_back(it);
+      removable_iterators.push_back(it);
     }
   }
-  for (auto it: removableIterators)
+  for (auto it: removable_iterators)
   {
-    actuator.mapActions.erase(it);
+    actuator.map_actions.erase(it);
   }
 }
 
-template<typename keyT, typename actionT, typename ...Actions>
-auto connect(std::pair<keyT, actionT*> A1, Actions... An)
+template<typename key_t, typename action_t, typename ...Actions>
+auto connect(std::pair<key_t, action_t*> A1, Actions... An)
 {
-  using actuatorT = untangle::actuator<actionT>;
-  actuatorT actuator;
-  actuator.mapActions = {A1, An...};
+  using actuator_t = untangle::actuator<action_t>;
+  actuator_t actuator;
+  actuator.map_actions = {A1, An...};
 
   // remove empty actions
-  removeEmptyActions(actuator);
+  remove_empty_actions(actuator);
   return std::move(actuator);
 }
 
@@ -374,16 +374,16 @@ struct function_remove_const<R(Args...)const>
  *
  * @param obj - Class object.
  * @param method - Pointer to function member. It is specified as &<class type>::<function member>
- * @return actionT - A std::function that wraps the pointer to function member.
+ * @return action_t - A std::function that wraps the pointer to function member.
  *
  * @remark If the class object gets invalid, invoking this binding will throw an exception of type invalid_action.
  *
  * @ingroup untangle_functions
  */
-template <typename classT, typename T, typename actionT = std::function<typename function_remove_const<T>::type>>
-static actionT bind(const std::shared_ptr<classT>& obj, T classT::* method)
+template <typename class_t, typename T, typename action_t = std::function<typename function_remove_const<T>::type>>
+static action_t bind(const std::shared_ptr<class_t>& obj, T class_t::* method)
 {
-  return [wp = std::weak_ptr<classT>(obj), method](auto&&... args) -> typename actionT::result_type
+  return [wp = std::weak_ptr<class_t>(obj), method](auto&&... args) -> typename action_t::result_type
   {
     // lock() also keeps the object alive for the duration of the call
     if (const auto obj_ = wp.lock())
@@ -407,15 +407,15 @@ static actionT bind(const std::shared_ptr<classT>& obj, T classT::* method)
  *
  * @param obj - Pointer to class.
  * @param method - Pointer to function member. It is specified as &<class type>::<function member>
- * @return actionT - A std::function that wraps the pointer to function member.
+ * @return action_t - A std::function that wraps the pointer to function member.
  *
  * @ingroup untangle_functions
  */
-template <typename classT, typename T, typename actionT = std::function<typename function_remove_const<T>::type>>
-static actionT bind(classT* obj, T classT::* method)
+template <typename class_t, typename T, typename action_t = std::function<typename function_remove_const<T>::type>>
+static action_t bind(class_t* obj, T class_t::* method)
 {
   assert(obj != nullptr);
-  return [obj, method](auto&&... args) mutable -> typename actionT::result_type
+  return [obj, method](auto&&... args) mutable -> typename action_t::result_type
   {
     return ((obj)->*method)(std::forward<decltype(args)>(args)...);
   };
