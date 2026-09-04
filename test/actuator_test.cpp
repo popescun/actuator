@@ -132,6 +132,7 @@ void rotate_shapes(const std::vector<shape*>& shapes, int angle)
     s->rotate(angle);
   }
 }
+//! [test_polymorphism1]
 
 TEST(test_actuator, test_polymorphism_named_actions) {
   //! [test_polymorphism_named_actions2]
@@ -205,12 +206,14 @@ TEST(test_actuator, test_polymorphism_using_shared_pointers) {
   EXPECT_CALL(*t, rotate(testing::_)).WillOnce(testing::Return());
   EXPECT_CALL(*c, rotate(testing::_)).WillOnce(testing::Return());
   EXPECT_CALL(*s, rotate(testing::_)).WillOnce(testing::Return());
+  //! [test_polymorphism2]
   auto action1 = untangle::bind(t, &triangle_mock::rotate);
   auto action2 = untangle::bind(c, &circle_mock::rotate);
   auto action3 = untangle::bind(s, &square_mock::rotate);
 
   auto actuator_rotate = untangle::connect(action1, action2, action3);
   actuator_rotate(20);
+  //! [test_polymorphism2]
 
   testing::Mock::VerifyAndClearExpectations(t.get());
   testing::Mock::VerifyAndClearExpectations(c.get());
@@ -254,6 +257,7 @@ TEST(test_actuator, test_polymorphism_using_pointers) {
 }
 
 TEST(test_actuator, test_assignment) {
+  //! [test_assignment]
   const auto t = std::make_shared<triangle_mock>();
   const auto c = std::make_shared<circle_mock>();
   const auto s = std::make_shared<square_mock>();
@@ -272,6 +276,7 @@ TEST(test_actuator, test_assignment) {
   testing::Mock::VerifyAndClearExpectations(t.get());
   testing::Mock::VerifyAndClearExpectations(c.get());
   testing::Mock::VerifyAndClearExpectations(s.get());
+  //! [test_assignment]
 }
 
 TEST(test_actuator, test_self_assignment) {
@@ -328,6 +333,7 @@ TEST(test_actuator, test_assignment_copies_results) {
 }
 
 TEST(test_actuator, test_add) {
+  //! [test_add]
   const auto t = std::make_shared<triangle_mock>();
   const auto c = std::make_shared<circle_mock>();
   const auto s = std::make_shared<square_mock>();
@@ -346,6 +352,7 @@ TEST(test_actuator, test_add) {
   testing::Mock::VerifyAndClearExpectations(t.get());
   testing::Mock::VerifyAndClearExpectations(c.get());
   testing::Mock::VerifyAndClearExpectations(s.get());
+  //! [test_add]
 }
 
 TEST(test_actuator, test_remove) {
