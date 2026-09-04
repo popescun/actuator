@@ -78,10 +78,17 @@ struct actuator final
   results_t results; //!< Actions return values list.
 
   actuator() = default;
-  ~actuator()
-  {
-    actions.clear();
-  }
+  actuator(const actuator&) = default;
+  actuator(actuator&&) noexcept = default;
+  ~actuator() = default;
+  /**
+   * @brief Assignment operator.
+   *
+   * Example:
+   * \snippet actuator_test.cpp test_assignment
+   */
+  actuator& operator=(const actuator& other) = default;
+  actuator& operator=(actuator&&) noexcept = default;
 
   /**
    * @brief Helper method to access the action type of this object.
@@ -93,25 +100,6 @@ struct actuator final
   action_t type()
   {
     return nullptr;
-  }
-
-  /**
-   * @brief Assignment operator.
-   *
-   * Example:
-   * \snippet test_actuator.cpp test_assignment
-   */
-  actuator& operator=(const actuator& other)
-  {
-    if (this == &other)
-    {
-      return *this;
-    }
-
-    actions = other.actions;
-    map_actions = other.map_actions;
-    results = other.results;
-    return *this;
   }
 
   /**
@@ -210,7 +198,7 @@ struct actuator final
    * @param action - Action to be added.
    *
    * Example:
-   * \snippet test_actuator.cpp test_add
+   * \snippet actuator_test.cpp test_add
    */
   void add(action_t* action)
   {
@@ -236,7 +224,7 @@ struct actuator final
    * @param action - Action to be removed.
    *
    * Example:
-   * \snippet test_actuator.cpp test_add
+   * \snippet actuator_test.cpp test_add
    */
   void remove(const action_t* action)
   {
@@ -284,8 +272,8 @@ struct actuator final
  * @ingroup untangle_functions
  *
  * Example:
- * \snippet test_actuator.cpp test_polymorphism1
- * \snippet test_actuator.cpp test_polymorphism2
+ * \snippet actuator_test.cpp test_polymorphism1
+ * \snippet actuator_test.cpp test_polymorphism2
  */
 template<typename action_t, typename ...Actions>
 auto connect(action_t& A1, Actions&... An)

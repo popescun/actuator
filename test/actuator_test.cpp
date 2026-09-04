@@ -696,4 +696,56 @@ TEST(test_actuator, test_invoke_action_non_default_constructible_result)
   EXPECT_EQ(actuator.results.front().value, 7);
 }
 
+/**
+ * @brief A result type that records whether it was copied or moved.
+ *
+ * std::vector's move constructor is O(1) and must not touch the elements at all,
+ * so a copy count of 0 after moving an actuator proves the move was a real move.
+ */
+struct counted_result
+{
+  static inline int copies = 0;
+  static inline int moves = 0;
+  static void reset() { copies = 0; moves = 0; }
+
+  int value;
+  explicit counted_result(int v) : value(v) {}
+  counted_result(const counted_result& other) : value(other.value) {
+    ++copies;
+  }
+  counted_result(counted_result&& other) noexcept : value(other.value) {
+    ++moves;
+  }
+  counted_result& operator=(const counted_result&) = default;
+  counted_result& operator=(counted_result&&) = default;
+};
+
+TEST(test_actuator, test_move_does_not_copy)
+{
+  using action_t = std::function<counted_result(int)>;
+  using actuator_t = untangle::actuator<action_t>;
+
+  // An actuator must stay copyable: declaring a move constructor without also
+  // declaring the copy constructor would define the latter as deleted, which
+  // breaks test_assignment's `constructed = source`.
+  static_assert(std::is_copy_constructible_v<actuator_t>);
+  static_assert(std::is_copy_assignable_v<actuator_t>);
+
+  actuator_t source;
+  source.results.push_back(counted_result{11});
+  source.results.push_back(counted_result{22});
+
+  counted_result::reset();
+  auto moved = std::move(source);
+  EXPECT_EQ(counted_result::copies, 0) << "move-construction copied the results";
+  ASSERT_EQ(moved.results.size(), 2);
+
+  actuator_t assigned;
+  counted_result::reset();
+  assigned = std::move(moved);
+  EXPECT_EQ(counted_result::copies, 0) << "move-assignment copied the results";
+  ASSERT_EQ(assigned.results.size(), 2);
+  EXPECT_EQ(assigned.results.front().value, 11);
+}
+
 } // namespace untangle::test
