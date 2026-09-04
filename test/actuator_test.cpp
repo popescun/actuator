@@ -1,9 +1,7 @@
+// Copyright (c) 2025 Nicolae Popescu. MIT License.
+
 /**
  * @brief Test the actuator concept.
- *
- * @file actuator_test.cpp
- * @author Nicu Popescu
- * @date 2021
  */
 #include <actuator.hpp>
 

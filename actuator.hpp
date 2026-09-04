@@ -1,9 +1,7 @@
+// Copyright (c) 2018 Nicolae Popescu. MIT License.
+
 /**
  * @brief Interface to \ref untangle::actuator functor.
- *
- * @file actuator.hpp
- * @author Nicolae Popescu
- * @date 2018 - 2025
  */
 #pragma once
 
@@ -158,10 +156,6 @@ struct actuator final
 
       try
       {
-        // todo: to be removed?
-        // with SFINAE
-        // select_actuate(action, std::forward<Args>(args)...);
-
         if constexpr (std::is_same_v<typename action_t::result_type, void>) {
           (*action)(std::forward<Args>(args)...);
         } else {
@@ -278,28 +272,6 @@ struct actuator final
    * @return false - if name can not be found in actuator::map_actions
    */
   bool has_action(std::string name) { return map_actions.find(name) != map_actions.end(); }
-
-  private:
-   /**
-   * @brief SFINAE for void return.
-   *
-   */
-  template<typename T, typename ...Args>
-  std::enable_if_t<std::is_void_v<typename T::result_type>, typename T::result_type> select_actuate(T* action, Args&&... args)
-  {
-     (*action)(std::forward<Args>(args)...);
-  }
-
-  /**
-   * @brief SFINAE for non-void return.
-   *
-   */
-  template<typename T, typename ...Args>
-  std::enable_if_t<!std::is_void_v<typename T::result_type>, typename T::result_type> select_actuate(T* action, Args&&... args)
-  {
-    results.push_back((*action)(std::forward<Args>(args)...));
-    return typename T::result_type();
-  }
 };
 
 /**

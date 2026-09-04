@@ -1,3 +1,5 @@
+# Copyright (c) 2018 Nicolae Popescu. MIT License.
+
 cmake_minimum_required(VERSION 4.1)
 
 set(CMAKE_CXX_STANDARD 20)
