@@ -22,7 +22,7 @@ namespace untangle
 /**
  * @brief Invalid action exception.
  *
- * @remark An action may be provided as a binding to a class function member, by using \ref bind().
+ * @remark An action may be provided as a binding to a class function member, by using \ref untangle::bind().
  *         When the class object gets invalid, invoking the action will raise an exception to this type.
  *
  */
@@ -265,7 +265,8 @@ struct actuator final
 /**
  * @brief Creates an actuator holding an initial list of actions.
  *
- * @param A1..An Any number of actions. They are specified as std::function<...>.
+ * @param A1 - The first action. It is specified as std::function<...>.
+ * @param An - Any number of further actions, of the same type as A1.
  *
  * @return An \ref actuator.
  *
@@ -351,7 +352,7 @@ struct function_remove_const<R(Args...)const>
  * outlive the caller's shared pointer.
  *
  * @param obj - Class object.
- * @param method - Pointer to function member. It is specified as &<class type>::<function member>
+ * @param method - Pointer to function member. It is specified as &\<class type\>::\<function member\>
  * @return action_t - A std::function that wraps the pointer to function member.
  *
  * @remark If the class object gets invalid, invoking this binding will throw an exception of type invalid_action.
@@ -379,12 +380,12 @@ static action_t bind(const std::shared_ptr<class_t>& obj, T class_t::* method)
 /**
  * @brief Binding to a class method.
  *
- * @attention It is not safe to use this binding to provide actions to an \ref actuator.The class object is provided through a pointer type. This pointer is captured internally in a lambda, so it can not be checked if it gets null.
+ * @attention It is not safe to use this binding to provide actions to an \ref actuator . The class object is provided through a pointer type. This pointer is captured internally in a lambda, so it can not be checked if it gets null.
  *
  * @remark It is provided for convenience of use: within a class it is safe to create bindings through <B>this</B> pointer.
  *
  * @param obj - Pointer to class.
- * @param method - Pointer to function member. It is specified as &<class type>::<function member>
+ * @param method - Pointer to function member. It is specified as &\<class type\>::\<function member\>
  * @return action_t - A std::function that wraps the pointer to function member.
  *
  * @ingroup untangle_functions
