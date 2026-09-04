@@ -360,7 +360,7 @@ struct function_remove_const<R(Args...)const>
  * @ingroup untangle_functions
  */
 template <typename class_t, typename T, typename action_t = std::function<typename function_remove_const<T>::type>>
-static action_t bind(const std::shared_ptr<class_t>& obj, T class_t::* method)
+action_t bind(const std::shared_ptr<class_t>& obj, T class_t::* method)
 {
   return [wp = std::weak_ptr<class_t>(obj), method](auto&&... args) -> typename action_t::result_type
   {
@@ -391,7 +391,7 @@ static action_t bind(const std::shared_ptr<class_t>& obj, T class_t::* method)
  * @ingroup untangle_functions
  */
 template <typename class_t, typename T, typename action_t = std::function<typename function_remove_const<T>::type>>
-static action_t bind(class_t* obj, T class_t::* method)
+action_t bind(class_t* obj, T class_t::* method)
 {
   assert(obj != nullptr);
   return [obj, method](auto&&... args) mutable -> typename action_t::result_type
