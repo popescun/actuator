@@ -224,7 +224,7 @@ struct actuator final
    * @param action - Action to be removed.
    *
    * Example:
-   * \snippet actuator_test.cpp test_add
+   * \snippet actuator_test.cpp test_remove
    */
   void remove(const action_t* action)
   {

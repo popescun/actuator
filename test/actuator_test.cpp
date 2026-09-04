@@ -356,6 +356,7 @@ TEST(test_actuator, test_add) {
 }
 
 TEST(test_actuator, test_remove) {
+  //! [test_remove]
   const auto t = std::make_shared<triangle_mock>();
   const auto c = std::make_shared<circle_mock>();
   const auto s = std::make_shared<square_mock>();
@@ -374,6 +375,7 @@ TEST(test_actuator, test_remove) {
   testing::Mock::VerifyAndClearExpectations(t.get());
   testing::Mock::VerifyAndClearExpectations(c.get());
   testing::Mock::VerifyAndClearExpectations(s.get());
+  //! [test_remove]
 }
 
 TEST(test_actuator, test_remove_by_empty_action) {
