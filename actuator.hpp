@@ -196,7 +196,11 @@ struct actuator final
     {
       try
       {
-        select_actuate(it->second, std::forward<Args>(args)...);
+        if constexpr (std::is_same_v<typename action_t::result_type, void>) {
+          (*it->second)(std::forward<Args>(args)...);
+        } else {
+          results.push_back((*it->second)(std::forward<Args>(args)...));
+        }
       }
       catch (const invalid_action& ia)
       {

@@ -674,4 +674,28 @@ TEST(test_actuator, test_void_return_and_args)
   //! [test_void_return_and_args]
 }
 
+/**
+ * @brief A result type with no default constructor.
+ *
+ * results_t (a std::vector) stores it happily, and operator() handles it via
+ * `if constexpr`. Only invoke_action's SFINAE path needs to default-construct one.
+ */
+struct measurement
+{
+  explicit measurement(int v) : value(v) {}
+  int value;
+};
+
+TEST(test_actuator, test_invoke_action_non_default_constructible_result)
+{
+  std::function<measurement(int)> action = [](int v) { return measurement{v}; };
+
+  auto actuator = untangle::connect(std::make_pair(std::string("measure"), &action));
+
+  actuator.invoke_action("measure", 7);
+
+  ASSERT_EQ(actuator.results.size(), 1);
+  EXPECT_EQ(actuator.results.front().value, 7);
+}
+
 } // namespace untangle::test
