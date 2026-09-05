@@ -8,6 +8,7 @@
 #include <vector>
 #include <list>
 #include <map>
+#include <string>
 #include <utility>
 #include <functional>
 #include <memory>
@@ -170,7 +171,7 @@ struct actuator final
    * @param args - Arguments list must match the action arity.
    */
   template<typename ...Args>
-  void invoke_action(std::string name, Args&&... args)
+  void invoke_action(const std::string& name, Args&&... args)
   {
     results.clear();
     const auto& it = actions_map.find(name);
@@ -211,7 +212,7 @@ struct actuator final
    * @param name - Name of the action.
    * @param action - Action to be added.
    */
-  void add(std::string name, action_t* action)
+  void add(const std::string& name, action_t* action)
   {
     actions_map.emplace(name, action);
   }
