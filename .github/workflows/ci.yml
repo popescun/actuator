@@ -1,0 +1,80 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  # Formatting is platform independent: the same clang-format version produces
+  # the same result everywhere, so this runs once rather than per platform.
+  format:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # A pinned Python keeps pip usable on every runner; the macOS system
+      # Python refuses plain `pip install` as an externally managed environment.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # Pinned to the same major version used locally. Formatting output differs
+      # between clang-format majors, so an unpinned tool fails CI on code that is
+      # correctly formatted on a developer's machine.
+      - name: Install clang-format
+        run: pip install "clang-format>=21,<22"
+
+      - name: Show version
+        run: clang-format --version
+
+      # --Werror turns "needs reformatting" into a non-zero exit.
+      # git ls-files keeps this to tracked sources, so build trees are never scanned.
+      # -z/-0 pairs NUL-separated names, so word splitting never mangles a path.
+      - name: Check formatting
+        run: |
+          echo "checking:"
+          git ls-files '*.hpp' '*.cpp' | sed 's/^/  /'
+          git ls-files -z '*.hpp' '*.cpp' | xargs -0 clang-format --dry-run --Werror --style=file
+
+  build:
+    needs: format
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # test/CMakeLists.txt requires CMake 4.1, which is newer than some runner
+      # images ship. Installing it via pip pins the same version on all three.
+      - name: Install CMake
+        run: pip install "cmake>=4.1"
+
+      - name: Show versions
+        shell: bash
+        run: |
+          cmake --version | head -1
+          git ls-files '*.hpp' '*.cpp' | wc -l | sed 's/^/tracked sources: /'
+
+      - name: Configure
+        run: cmake -S test -B test/build -DCMAKE_BUILD_TYPE=Release
+
+      # --config matters on multi-config generators (Visual Studio); it is
+      # ignored elsewhere, so one command covers all three platforms.
+      - name: Build
+        run: cmake --build test/build --config Release
+
+      # Single-config puts the binary in bin/, Visual Studio in bin/Release/,
+      # and Windows adds .exe -- so locate it rather than hard-coding a path.
+      - name: Test
+        shell: bash
+        run: |
+          exe=$(find test/build/bin -type f -name 'actuator_test*' ! -name '*.pdb' | head -1)
+          if [ -z "$exe" ]; then echo "error: test binary not found"; find test/build/bin -type f; exit 1; fi
+          echo "running $exe"
+          "$exe"
