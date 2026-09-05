@@ -774,4 +774,19 @@ TEST(test_actuator, test_const_observers)
   EXPECT_TRUE(copy.is_connected());
 }
 
+TEST(test_actuator, test_bind_null_pointer_is_a_dead_action)
+{
+  // The raw-pointer bind guards only with assert(), which compiles out under
+  // NDEBUG and leaves a raw dereference. A null binding should instead behave
+  // like a dead weak_ptr binding: throw invalid_action so the actuator drops it.
+  triangle_mock* dead = nullptr;
+  auto action = untangle::bind(dead, &triangle_mock::rotate);
+
+  EXPECT_THROW(action(10), untangle::invalid_action);
+
+  auto actuator_rotate = untangle::connect(action);
+  actuator_rotate(10);
+  EXPECT_FALSE(actuator_rotate.is_connected());
+}
+
 } // namespace untangle::test

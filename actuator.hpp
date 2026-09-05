@@ -373,7 +373,7 @@ action_t bind(const std::shared_ptr<class_t>& obj, T class_t::* method)
     else
     {
       //inform the actuator about dead binding
-      throw invalid_action("bind::method: invalid object");
+      throw invalid_action("bind: invalid object");
     }
   };
 }
@@ -394,9 +394,13 @@ action_t bind(const std::shared_ptr<class_t>& obj, T class_t::* method)
 template <typename class_t, typename T, typename action_t = std::function<typename function_remove_const<T>::type>>
 action_t bind(class_t* obj, T class_t::* method)
 {
-  assert(obj != nullptr);
   return [obj, method](auto&&... args) -> typename action_t::result_type
   {
+    if (obj == nullptr)
+    {
+      //inform the actuator about dead binding
+      throw invalid_action("bind: invalid object");
+    }
     return ((obj)->*method)(std::forward<decltype(args)>(args)...);
   };
 }
