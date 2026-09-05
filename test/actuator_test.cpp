@@ -3,120 +3,108 @@
 /**
  * @brief Test the actuator concept.
  */
-#include <actuator.hpp>
-
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include <actuator.hpp>
+
 namespace untangle::test {
 
-class shape
-{
-public:
-  virtual ~shape()= default;
+class shape {
+ public:
+  virtual ~shape() = default;
   virtual void rotate(int angle) const = 0;
   virtual void test_vr_no_args() const = 0;
   virtual void test_vr_args(int x, int y) const = 0;
 };
 
-class triangle : public shape
-{
-public:
-  ~triangle() override {
-    std::cout << "triangle::~triangle" << std::endl;
-  }
-  void rotate(int angle) const override {
-    std::cout << "triangle::rotate " << angle << std::endl;
-  }
+class triangle : public shape {
+ public:
+  ~triangle() override { std::cout << "triangle::~triangle" << std::endl; }
+  void rotate(int angle) const override { std::cout << "triangle::rotate " << angle << std::endl; }
 
   void height_in(int h) {
-    std::cout << "triangle::height_in" << std::endl; height = h;
+    std::cout << "triangle::height_in" << std::endl;
+    height = h;
   }
   int height_out() const {
-    std::cout << "triangle::height_out" << std::endl; return height;
+    std::cout << "triangle::height_out" << std::endl;
+    return height;
   }
 
-  void test_vr_no_args() const override {
-    std::cout << "triangle::test_vr" << std::endl;
-  }
+  void test_vr_no_args() const override { std::cout << "triangle::test_vr" << std::endl; }
 
   void test_vr_args(int x, int y) const override {
-    std::cout << "triangle::test_vr_args " << x << ", "<< y <<std::endl;
+    std::cout << "triangle::test_vr_args " << x << ", " << y << std::endl;
   }
 
-private:
+ private:
   int height{0};
 };
 
 class triangle_mock : public shape {
-public:
+ public:
   MOCK_METHOD(void, rotate, (int), (const, override));
   MOCK_METHOD(void, test_vr_no_args, (), (const, override));
   MOCK_METHOD(void, test_vr_args, (int, int), (const, override));
 };
 
-class circle : public shape
-{
-public:
-  void rotate(int angle) const override {
-    std::cout << "circle::rotate " << angle << std::endl;
-  }
+class circle : public shape {
+ public:
+  void rotate(int angle) const override { std::cout << "circle::rotate " << angle << std::endl; }
 
   void height_in(int h) {
-    std::cout << "circle::height_in" << std::endl; height = h;
+    std::cout << "circle::height_in" << std::endl;
+    height = h;
   }
 
   int height_out() const {
-    std::cout << "circle::height_out" << std::endl; return height;
+    std::cout << "circle::height_out" << std::endl;
+    return height;
   }
 
-  void test_vr_no_args() const override {
-    std::cout << "circle::test_vr" << std::endl;
-  }
+  void test_vr_no_args() const override { std::cout << "circle::test_vr" << std::endl; }
   void test_vr_args(int x, int y) const override {
-    std::cout << "circle::test_vr_args " << x << ", "<< y <<std::endl;
+    std::cout << "circle::test_vr_args " << x << ", " << y << std::endl;
   }
 
-private:
+ private:
   int height{0};
 };
 
 class circle_mock : public shape {
-public:
+ public:
   MOCK_METHOD(void, rotate, (int), (const, override));
   MOCK_METHOD(void, test_vr_no_args, (), (const, override));
   MOCK_METHOD(void, test_vr_args, (int, int), (const, override));
 };
 
-class square : public shape
-{
-public:
-  void rotate(int angle) const override {
-    std::cout << "square::rotate " << angle << std::endl;
-  }
+class square : public shape {
+ public:
+  void rotate(int angle) const override { std::cout << "square::rotate " << angle << std::endl; }
 
   void height_in(int h) {
-    std::cout << "square::height_in" << std::endl; height = h;
+    std::cout << "square::height_in" << std::endl;
+    height = h;
   }
 
   int height_out() const {
-    std::cout << "square::height_out" << std::endl; return height;
+    std::cout << "square::height_out" << std::endl;
+    return height;
   }
 
-  void test_vr_no_args() const override {
-    std::cout << "square::test_vr" << std::endl;
-  }
+  void test_vr_no_args() const override { std::cout << "square::test_vr" << std::endl; }
 
   void test_vr_args(int x, int y) const override {
-    std::cout << "square::test_vr_args " << x << ", "<< y <<std::endl;
+    std::cout << "square::test_vr_args " << x << ", " << y << std::endl;
   }
 
-private:
+ private:
   int height{0};
 };
 
 class square_mock : public shape {
-public:
+ public:
   MOCK_METHOD(void, rotate, (int), (const, override));
   MOCK_METHOD(void, test_vr_no_args, (), (const, override));
   MOCK_METHOD(void, test_vr_args, (int, int), (const, override));
@@ -125,10 +113,8 @@ public:
 void rotate(int angle) { std::cout << "function::rotate " << angle << std::endl; }
 
 //! [test_polymorphism1]
-void rotate_shapes(const std::vector<shape*>& shapes, int angle)
-{
-  for (const auto& s : shapes)
-  {
+void rotate_shapes(const std::vector<shape*>& shapes, int angle) {
+  for (const auto& s : shapes) {
     s->rotate(angle);
   }
 }
@@ -294,7 +280,8 @@ TEST(test_actuator, test_self_assignment) {
   ASSERT_TRUE(actuator_rotate.has_action("circle"));
 
   // self-assignment must be a no-op, not a wipe.
-  // assigned through an alias so the compiler does not flag the self-assignment (-Wself-assign-overloaded).
+  // assigned through an alias so the compiler does not flag the self-assignment
+  // (-Wself-assign-overloaded).
   const auto& alias = actuator_rotate;
   actuator_rotate = alias;
 
@@ -491,24 +478,17 @@ TEST(test_actuator, test_invalid_action_is_catchable_as_std_exception) {
   bool caught_as_std_exception = false;
   std::string message;
 
-  try
-  {
+  try {
     throw untangle::invalid_action("boom");
-  }
-  catch (const std::exception& e)
-  {
+  } catch (const std::exception& e) {
     caught_as_std_exception = true;
     message = e.what();
-  }
-  catch (...)
-  {
+  } catch (...) {
     // private inheritance makes the base inaccessible, so the handler above is skipped
   }
 
-  EXPECT_TRUE(caught_as_std_exception)
-      << "invalid_action is not catchable as std::exception";
-  EXPECT_EQ(message, "boom")
-      << "a generic handler must see the real message, not a placeholder";
+  EXPECT_TRUE(caught_as_std_exception) << "invalid_action is not catchable as std::exception";
+  EXPECT_EQ(message, "boom") << "a generic handler must see the real message, not a placeholder";
 }
 
 TEST(test_actuator, test_invalid_action) {
@@ -552,8 +532,7 @@ TEST(test_actuator, test_dead_action_leaves_caller_function_intact) {
 
   // ... but action2 is owned by this test, not by the actuator.
   // The actuator must not reach through its action_t* and empty it.
-  EXPECT_TRUE(static_cast<bool>(action2))
-      << "the actuator emptied a std::function it does not own";
+  EXPECT_TRUE(static_cast<bool>(action2)) << "the actuator emptied a std::function it does not own";
 
   // Consequence of the same defect: a caller re-invoking its own action should still
   // get the dead-binding report, not std::bad_function_call from an emptied function.
@@ -564,8 +543,7 @@ TEST(test_actuator, test_dead_action_leaves_caller_function_intact) {
 
 //! Returns an action bound to a shared_ptr that dies when this function returns.
 //! The action must outlive the object safely.
-std::function<int()> make_height_action()
-{
+std::function<int()> make_height_action() {
   const auto t = std::make_shared<triangle>();
   t->height_in(7);
   return untangle::bind(t, &triangle::height_out);
@@ -629,8 +607,7 @@ TEST(test_actuator, test_extract_results) {
   //! [test_extract_results]
 }
 
-TEST(test_actuator, test_void_return_no_args)
-{
+TEST(test_actuator, test_void_return_no_args) {
   //! [test_void_return_no_args]
   const auto t = std::make_shared<triangle_mock>();
   const auto c = std::make_shared<circle_mock>();
@@ -655,8 +632,7 @@ TEST(test_actuator, test_void_return_no_args)
   //! [test_void_return_no_args]
 }
 
-TEST(test_actuator, test_void_return_and_args)
-{
+TEST(test_actuator, test_void_return_and_args) {
   //! [test_void_return_and_args]
   const auto t = std::make_shared<triangle_mock>();
   const auto c = std::make_shared<circle_mock>();
@@ -687,14 +663,12 @@ TEST(test_actuator, test_void_return_and_args)
  * results_t (a std::vector) stores it happily, and operator() handles it via
  * `if constexpr`. Only invoke_action's SFINAE path needs to default-construct one.
  */
-struct measurement
-{
+struct measurement {
   explicit measurement(int v) : value(v) {}
   int value;
 };
 
-TEST(test_actuator, test_invoke_action_non_default_constructible_result)
-{
+TEST(test_actuator, test_invoke_action_non_default_constructible_result) {
   std::function<measurement(int)> action = [](int v) { return measurement{v}; };
 
   auto actuator = untangle::connect(std::make_pair(std::string("measure"), &action));
@@ -711,26 +685,23 @@ TEST(test_actuator, test_invoke_action_non_default_constructible_result)
  * std::vector's move constructor is O(1) and must not touch the elements at all,
  * so a copy count of 0 after moving an actuator proves the move was a real move.
  */
-struct counted_result
-{
+struct counted_result {
   static inline int copies = 0;
   static inline int moves = 0;
-  static void reset() { copies = 0; moves = 0; }
+  static void reset() {
+    copies = 0;
+    moves = 0;
+  }
 
   int value;
   explicit counted_result(int v) : value(v) {}
-  counted_result(const counted_result& other) : value(other.value) {
-    ++copies;
-  }
-  counted_result(counted_result&& other) noexcept : value(other.value) {
-    ++moves;
-  }
+  counted_result(const counted_result& other) : value(other.value) { ++copies; }
+  counted_result(counted_result&& other) noexcept : value(other.value) { ++moves; }
   counted_result& operator=(const counted_result&) = default;
   counted_result& operator=(counted_result&&) = default;
 };
 
-TEST(test_actuator, test_move_does_not_copy)
-{
+TEST(test_actuator, test_move_does_not_copy) {
   using action_t = std::function<counted_result(int)>;
   using actuator_t = untangle::actuator<action_t>;
 
@@ -757,8 +728,7 @@ TEST(test_actuator, test_move_does_not_copy)
   EXPECT_EQ(assigned.results.front().value, 11);
 }
 
-TEST(test_actuator, test_const_observers)
-{
+TEST(test_actuator, test_const_observers) {
   const auto t = std::make_shared<triangle_mock>();
   auto action = untangle::bind(t, &triangle_mock::rotate);
 
@@ -774,8 +744,7 @@ TEST(test_actuator, test_const_observers)
   EXPECT_TRUE(copy.is_connected());
 }
 
-TEST(test_actuator, test_bind_null_pointer_is_a_dead_action)
-{
+TEST(test_actuator, test_bind_null_pointer_is_a_dead_action) {
   // The raw-pointer bind guards only with assert(), which compiles out under
   // NDEBUG and leaves a raw dereference. A null binding should instead behave
   // like a dead weak_ptr binding: throw invalid_action so the actuator drops it.
@@ -789,4 +758,4 @@ TEST(test_actuator, test_bind_null_pointer_is_a_dead_action)
   EXPECT_FALSE(actuator_rotate.is_connected());
 }
 
-} // namespace untangle::test
+}  // namespace untangle::test

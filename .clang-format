@@ -1,0 +1,14 @@
+# Google C++ style, with the line limit widened to 100.
+#
+# Sources in this repo are CRLF; LineEnding keeps them that way. Getting it
+# wrong rewrites every line of every file instead of only what changed.
+Language: Cpp
+BasedOnStyle: Google
+Standard: c++20
+
+ColumnLimit: 100
+LineEnding: DeriveCRLF
+
+# Google derives pointer alignment per file; pin it so it is consistent.
+DerivePointerAlignment: false
+PointerAlignment: Left

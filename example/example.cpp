@@ -7,79 +7,92 @@
  */
 #include <actuator.hpp>
 
-class shape
-{
-public:
-  virtual ~shape(){}
+class shape {
+ public:
+  virtual ~shape() {}
   virtual void rotate(int angle) const = 0;
 };
 
+class triangle : public shape {
+ public:
+  void rotate(int angle) const override { std::cout << "triangle::rotate " << angle << std::endl; }
 
-class triangle : public shape
-{
-public:
-  void rotate(int angle) const override
-  {
-    std::cout << "triangle::rotate " << angle << std::endl;
+  void height_in(int h) {
+    std::cout << "triangle::height_in" << std::endl;
+    height = h;
+  }
+  int height_out() {
+    std::cout << "triangle::height_out" << std::endl;
+    return height;
   }
 
-  void height_in(int h) { std::cout << "triangle::height_in" << std::endl; height = h; }
-  int height_out() { std::cout << "triangle::height_out" << std::endl; return height; }
-
   void test_vr() { std::cout << "triangle::test_vr" << std::endl; }
-  void test_vr_args(int x, int y) { std::cout << "triangle::test_vr_args " << x << ", "<< y <<std::endl; }
+  void test_vr_args(int x, int y) {
+    std::cout << "triangle::test_vr_args " << x << ", " << y << std::endl;
+  }
 
   // actuators
   untangle::actuator<std::function<void(int)>> actuator_rotate;
 
-private:
+ private:
   int height;
 };
 
-class circle : public shape
-{
-public:
+class circle : public shape {
+ public:
   void rotate(int angle) const override { std::cout << "circle::rotate " << angle << std::endl; }
 
-  void height_in(int h) { std::cout << "circle::height_in" << std::endl; height = h; }
-  int height_out() { std::cout << "circle::height_out" << std::endl; return height; }
+  void height_in(int h) {
+    std::cout << "circle::height_in" << std::endl;
+    height = h;
+  }
+  int height_out() {
+    std::cout << "circle::height_out" << std::endl;
+    return height;
+  }
 
   void test_vr() { std::cout << "circle::test_vr" << std::endl; }
-  void test_vr_args(int x, int y) { std::cout << "circle::test_vr_args " << x << ", "<< y <<std::endl; }
+  void test_vr_args(int x, int y) {
+    std::cout << "circle::test_vr_args " << x << ", " << y << std::endl;
+  }
 
-private:
+ private:
   int height;
 };
 
-class square : public shape
-{
-public:
+class square : public shape {
+ public:
   void rotate(int angle) const override { std::cout << "square::rotate " << angle << std::endl; }
 
-  void height_in(int h) { std::cout << "square::height_in" << std::endl; height = h; }
-  int height_out() { std::cout << "square::height_out" << std::endl; return height; }
+  void height_in(int h) {
+    std::cout << "square::height_in" << std::endl;
+    height = h;
+  }
+  int height_out() {
+    std::cout << "square::height_out" << std::endl;
+    return height;
+  }
 
   void test_vr() { std::cout << "square::test_vr" << std::endl; }
-  void test_vr_args(int x, int y) { std::cout << "square::test_vr_args " << x << ", "<< y <<std::endl; }
+  void test_vr_args(int x, int y) {
+    std::cout << "square::test_vr_args " << x << ", " << y << std::endl;
+  }
 
-private:
+ private:
   int height;
 };
 
 void rotate(int angle) { std::cout << "function::rotate " << angle << std::endl; }
 
 //! [test_polymorphism1]
-void rotate_shapes(std::vector<shape*>& shapes, int angle)
-{
-  for (const auto& s : shapes)
-  {
+void rotate_shapes(std::vector<shape*>& shapes, int angle) {
+  for (const auto& s : shapes) {
     s->rotate(angle);
   }
 }
 //! [test_polymorphism1]
 
-void test_polymorphism()
-{
+void test_polymorphism() {
   //! [test_polymorphism2]
   // How to use actuator instead of polymorphism.
 
@@ -107,8 +120,7 @@ void test_polymorphism()
   //! [test_polymorphism2]
 }
 
-void test_assignment()
-{
+void test_assignment() {
   //! [test_assignment]
   std::shared_ptr<triangle> t(new triangle);
   std::shared_ptr<circle> c(new circle);
@@ -126,8 +138,7 @@ void test_assignment()
   //! [test_assignment]
 }
 
-void test_add()
-{
+void test_add() {
   //! [test_add]
   std::shared_ptr<triangle> t(new triangle);
   std::shared_ptr<circle> c(new circle);
@@ -145,8 +156,7 @@ void test_add()
   //! [test_add]
 }
 
-void test_remove()
-{
+void test_remove() {
   //! [test_remove]
   std::shared_ptr<triangle> t(new triangle);
   std::shared_ptr<circle> c(new circle);
@@ -164,8 +174,7 @@ void test_remove()
   //! [test_remove]
 }
 
-void test_invalid_action()
-{
+void test_invalid_action() {
   //! [test_invalid_action]
   std::shared_ptr<triangle> t(new triangle);
   std::shared_ptr<circle> c(new circle);
@@ -177,14 +186,14 @@ void test_invalid_action()
 
   auto actuator_rotate = untangle::connect(action1, action2, action3);
 
-  std::cout << "\nthe bound object is reset: the action is not executed and removed \n" << std::endl;
+  std::cout << "\nthe bound object is reset: the action is not executed and removed \n"
+            << std::endl;
   c.reset();
   actuator_rotate(60);
   //! [test_invalid_action]
 }
 
-void test_remove_by_empty_action()
-{
+void test_remove_by_empty_action() {
   //! [test_remove_by_empty_action]
   std::shared_ptr<triangle> t(new triangle);
   std::shared_ptr<circle> c(new circle);
@@ -196,15 +205,15 @@ void test_remove_by_empty_action()
 
   auto actuator_rotate = untangle::connect(action1, action2, action3);
 
-  std::cout << "\nthe action is removed when an empty action is connected in its place\n" << std::endl;
+  std::cout << "\nthe action is removed when an empty action is connected in its place\n"
+            << std::endl;
   std::function<void(int)> action_empty;
   actuator_rotate = untangle::connect(action1, action_empty, action3);
   actuator_rotate(70);
   //! [test_remove_by_empty_action]
 }
 
-void test_extract_results()
-{
+void test_extract_results() {
   //! [test_extract_results]
   std::shared_ptr<triangle> t(new triangle);
   std::shared_ptr<circle> c(new circle);
@@ -226,15 +235,13 @@ void test_extract_results()
 
   std::cout << "\nextract result\n" << std::endl;
 
-  for (const auto r : actuator_height_out.results)
-  {
+  for (const auto r : actuator_height_out.results) {
     std::cout << r << " ";
   }
   //! [test_extract_results]
 }
 
-void test_void_return()
-{
+void test_void_return() {
   //! [test_void_return]
   std::shared_ptr<triangle> t(new triangle);
   std::shared_ptr<circle> c(new circle);
@@ -251,8 +258,7 @@ void test_void_return()
   //! [test_void_return]
 }
 
-void test_void_return_and_args()
-{
+void test_void_return_and_args() {
   //! [test_void_return_and_args]
   std::shared_ptr<triangle> t(new triangle);
   std::shared_ptr<circle> c(new circle);
@@ -269,8 +275,7 @@ void test_void_return_and_args()
   //! [test_void_return_and_args]
 }
 
-void test_polymorphism_named_actions()
-{
+void test_polymorphism_named_actions() {
   //! [test_polymorphism_named_actions2]
   // How to use actuator instead of polymorphism.
 
@@ -292,9 +297,9 @@ void test_polymorphism_named_actions()
   auto action2 = untangle::bind(c, &circle::rotate);
   auto action3 = untangle::bind(s, &square::rotate);
 
-  auto actuator_rotate = untangle::connect(std::make_pair("triangle", &action1),
-                                           std::make_pair("circle", &action2),
-                                           std::make_pair("square", &action3));
+  auto actuator_rotate =
+      untangle::connect(std::make_pair("triangle", &action1), std::make_pair("circle", &action2),
+                        std::make_pair("square", &action3));
   actuator_rotate.remove("circle");
   actuator_rotate.add("circle", &action2);
   std::cout << "\nusing named actuator\n" << std::endl;
@@ -307,8 +312,7 @@ void test_polymorphism_named_actions()
   //! [test_polymorphism_named_actions2]
 }
 
-int main()
-{
+int main() {
   test_polymorphism();
   test_assignment();
   test_add();

@@ -5,35 +5,34 @@
  */
 #pragma once
 
-#include <vector>
+#include <exception>
+#include <functional>
+#include <iostream>
 #include <list>
 #include <map>
-#include <string>
-#include <utility>
-#include <functional>
 #include <memory>
-#include <iostream>
+#include <string>
 #include <type_traits>
-#include <exception>
+#include <utility>
+#include <vector>
 
-namespace untangle
-{
+namespace untangle {
 // exception
 /**
  * @brief Invalid action exception.
  *
- * @remark An action may be provided as a binding to a class function member, by using \ref untangle::bind().
- *         When the class object gets invalid, invoking the action will raise an exception to this type.
+ * @remark An action may be provided as a binding to a class function member, by using \ref
+ * untangle::bind(). When the class object gets invalid, invoking the action will raise an exception
+ * to this type.
  *
  */
-struct invalid_action : std::exception
-{
+struct invalid_action : std::exception {
   /**
    * @brief Construct a new invalid action object.
    *
    * @param text - A message text, describing the reason of this exception.
    */
-  explicit invalid_action(std::string text) : message(std::move(text)){}
+  explicit invalid_action(std::string text) : message(std::move(text)) {}
 
   /**
    * @brief The message text describing the reason of this exception.
@@ -42,29 +41,31 @@ struct invalid_action : std::exception
    */
   const char* what() const noexcept override { return message.c_str(); }
 
-  private:
-   std::string message; //!< It holds the message text.
+ private:
+  std::string message;  //!< It holds the message text.
 };
 
 /**
- * @brief An actuator is a functor that can trigger a dynamic list of actions (of type std::function<...>).
+ * @brief An actuator is a functor that can trigger a dynamic list of actions (of type
+ * std::function<...>).
  *
  *@remark An actuator object can be constructed with an initial list of actions by \ref connect().
  *
  * @tparam action_t Action type. It is specified as std::function<...>.
  */
-template<typename action_t>
-struct actuator final
-{
+template <typename action_t>
+struct actuator final {
   /**
    * @brief Actions container type.
    *
-   * @remark The elements stored are of pointer type, that is required to implement the remove() operation.
-   * std::function supports only equality operator for nullptr (two std::function(s) can not compare).
+   * @remark The elements stored are of pointer type, that is required to implement the remove()
+   * operation. std::function supports only equality operator for nullptr (two std::function(s) can
+   * not compare).
    */
   using actions_t = std::list<action_t*>;
   using actions_map_t = std::map<std::string, action_t*>;
-  using result_t = std::conditional<std::is_void<typename action_t::result_type>::value, int, typename action_t::result_type>;
+  using result_t = std::conditional<std::is_void<typename action_t::result_type>::value, int,
+                                    typename action_t::result_type>;
   /**
    * @brief Results container type.
    *
@@ -73,9 +74,9 @@ struct actuator final
    */
   using results_t = std::vector<typename result_t::type>;
 
-  actions_t actions; //!< Actions list.
-  actions_map_t actions_map; //!< Named actions map.
-  results_t results; //!< Actions return values list.
+  actions_t actions;          //!< Actions list.
+  actions_map_t actions_map;  //!< Named actions map.
+  results_t results;          //!< Actions return values list.
 
   actuator() = default;
   actuator(const actuator&) = default;
@@ -97,18 +98,14 @@ struct actuator final
    *
    * @return action_t
    */
-  action_t type() const
-  {
-    return nullptr;
-  }
+  action_t type() const { return nullptr; }
 
   /**
    * @brief Remove all actions and any stored results.
    *
    * After this call the actuator is empty: actuator::is_connected() returns false.
    */
-  void reset()
-  {
+  void reset() {
     actions.clear();
     actions_map.clear();
     results.clear();
@@ -121,9 +118,8 @@ struct actuator final
    *
    * @param args - Arguments list must match the action arity.
    */
-  template<typename ...Args>
-  void operator()(Args&&... args)
-  {
+  template <typename... Args>
+  void operator()(Args&&... args) {
     results.clear();
 
     // Dead bindings are collected here and dropped after the loop.
@@ -131,34 +127,28 @@ struct actuator final
     // write through action_t* into a std::function belonging to the caller.
     std::vector<action_t*> dead_actions;
 
-    for (const auto& action : actions)
-    {
+    for (const auto& action : actions) {
       // A null pointer or an empty std::function can never be invoked. Calling an
       // empty one throws std::bad_function_call, which is not an invalid_action and
       // would escape this operator, so drop it instead of invoking it.
-      if (action == nullptr || !*action)
-      {
+      if (action == nullptr || !*action) {
         dead_actions.push_back(action);
         continue;
       }
 
-      try
-      {
+      try {
         if constexpr (std::is_same_v<typename action_t::result_type, void>) {
           (*action)(std::forward<Args>(args)...);
         } else {
           results.push_back((*action)(std::forward<Args>(args)...));
         }
-      }
-      catch (const invalid_action& ia)
-      {
+      } catch (const invalid_action& ia) {
         std::cout << ia.what() << std::endl;
         dead_actions.push_back(action);
       }
     }
 
-    for (const auto& dead_action : dead_actions)
-    {
+    for (const auto& dead_action : dead_actions) {
       actions.remove(dead_action);
     }
   }
@@ -169,23 +159,18 @@ struct actuator final
    * @param name - Key associated with the action.
    * @param args - Arguments list must match the action arity.
    */
-  template<typename ...Args>
-  void invoke_action(const std::string& name, Args&&... args)
-  {
+  template <typename... Args>
+  void invoke_action(const std::string& name, Args&&... args) {
     results.clear();
     const auto& it = actions_map.find(name);
-    if (it != actions_map.end())
-    {
-      try
-      {
+    if (it != actions_map.end()) {
+      try {
         if constexpr (std::is_same_v<typename action_t::result_type, void>) {
           (*it->second)(std::forward<Args>(args)...);
         } else {
           results.push_back((*it->second)(std::forward<Args>(args)...));
         }
-      }
-      catch (const invalid_action& ia)
-      {
+      } catch (const invalid_action& ia) {
         std::cout << ia.what() << std::endl;
         actions_map.erase(name);
       }
@@ -200,10 +185,7 @@ struct actuator final
    * Example:
    * \snippet actuator_test.cpp test_add
    */
-  void add(action_t* action)
-  {
-    actions.push_back(action);
-  }
+  void add(action_t* action) { actions.push_back(action); }
 
   /**
    * @brief Add action to the actions map associated with a name.
@@ -211,10 +193,7 @@ struct actuator final
    * @param name - Name of the action.
    * @param action - Action to be added.
    */
-  void add(const std::string& name, action_t* action)
-  {
-    actions_map.emplace(name, action);
-  }
+  void add(const std::string& name, action_t* action) { actions_map.emplace(name, action); }
 
   /**
    * @brief Remove an action from the actions list.
@@ -226,12 +205,8 @@ struct actuator final
    * Example:
    * \snippet actuator_test.cpp test_remove
    */
-  void remove(const action_t* action)
-  {
-    actions.remove_if([&action](const auto& a)
-    {
-      return (action == a);
-    });
+  void remove(const action_t* action) {
+    actions.remove_if([&action](const auto& a) { return (action == a); });
   }
 
   /**
@@ -239,10 +214,7 @@ struct actuator final
    *
    * @param name -  Name of the action to remove.
    */
-  void remove(const std::string& name)
-  {
-    actions_map.erase(name);
-  }
+  void remove(const std::string& name) { actions_map.erase(name); }
 
   /**
    * @brief Check if this actuator is "connected" with other actions.
@@ -259,7 +231,9 @@ struct actuator final
    * @return true - if name can be found in actuator::actions_map
    * @return false - if name can not be found in actuator::actions_map
    */
-  bool has_action(const std::string& name) const { return actions_map.find(name) != actions_map.end(); }
+  bool has_action(const std::string& name) const {
+    return actions_map.find(name) != actions_map.end();
+  }
 };
 
 /**
@@ -276,41 +250,32 @@ struct actuator final
  * \snippet actuator_test.cpp test_polymorphism1
  * \snippet actuator_test.cpp test_polymorphism2
  */
-template<typename action_t, typename ...Actions>
-actuator<action_t> connect(action_t& A1, Actions&... An)
-{
+template <typename action_t, typename... Actions>
+actuator<action_t> connect(action_t& A1, Actions&... An) {
   using actuator_t = untangle::actuator<action_t>;
   actuator_t actuator;
   actuator.actions = {&A1, &An...};
 
   // remove empty actions
-  actuator.actions.remove_if([](const auto& action)
-  {
-    return (*action == nullptr);
-  });
+  actuator.actions.remove_if([](const auto& action) { return (*action == nullptr); });
   return actuator;
 }
 
 template <typename actuator_t>
-void remove_empty_actions(actuator_t& actuator)
-{
+void remove_empty_actions(actuator_t& actuator) {
   std::vector<typename actuator_t::actions_map_t::const_iterator> removable_iterators;
-  for (auto it = actuator.actions_map.begin(); it != actuator.actions_map.end(); ++it)
-  {
-    if (it->second == nullptr)
-    {
+  for (auto it = actuator.actions_map.begin(); it != actuator.actions_map.end(); ++it) {
+    if (it->second == nullptr) {
       removable_iterators.push_back(it);
     }
   }
-  for (auto it: removable_iterators)
-  {
+  for (auto it : removable_iterators) {
     actuator.actions_map.erase(it);
   }
 }
 
-template<typename key_t, typename action_t, typename ...Actions>
-actuator<action_t> connect(std::pair<key_t, action_t*> A1, Actions... An)
-{
+template <typename key_t, typename action_t, typename... Actions>
+actuator<action_t> connect(std::pair<key_t, action_t*> A1, Actions... An) {
   using actuator_t = untangle::actuator<action_t>;
   actuator_t actuator;
   actuator.actions_map = {A1, An...};
@@ -326,15 +291,13 @@ template <typename T>
 struct function_remove_const;
 
 template <typename R, typename... Args>
-struct function_remove_const<R(Args...)>
-{
-    using type = R(Args...);
+struct function_remove_const<R(Args...)> {
+  using type = R(Args...);
 };
 
 template <typename R, typename... Args>
-struct function_remove_const<R(Args...)const>
-{
-    using type = R(Args...);
+struct function_remove_const<R(Args...) const> {
+  using type = R(Args...);
 };
 
 /**
@@ -344,63 +307,69 @@ struct function_remove_const<R(Args...)const>
 /**
  * @brief Binding to a class function member.
  *
- * It returns a std::function(lambda) that wraps the function member. It may be used to provide an action for \ref connect() or \ref actuator::add().
+ * It returns a std::function(lambda) that wraps the function member. It may be used to provide an
+ * action for \ref connect() or \ref actuator::add().
  *
- * @remark It requires a shared pointer to the class type. A std::weak_ptr to it is captured internally in a lambda,
- * so the binding can always check whether the shared object is still alive without keeping it alive itself.
- * Therefore, it is safe to use actions provided by this binding inside an \ref actuator, and safe for the action to
- * outlive the caller's shared pointer.
+ * @remark It requires a shared pointer to the class type. A std::weak_ptr to it is captured
+ * internally in a lambda, so the binding can always check whether the shared object is still alive
+ * without keeping it alive itself. Therefore, it is safe to use actions provided by this binding
+ * inside an \ref actuator, and safe for the action to outlive the caller's shared pointer.
  *
  * @param obj - Class object.
- * @param method - Pointer to function member. It is specified as &\<class type\>::\<function member\>
+ * @param method - Pointer to function member. It is specified as &\<class type\>::\<function
+ * member\>
  * @return action_t - A std::function that wraps the pointer to function member.
  *
- * @remark If the class object gets invalid, invoking this binding will throw an exception of type invalid_action.
+ * @remark If the class object gets invalid, invoking this binding will throw an exception of type
+ * invalid_action.
  *
  * @ingroup untangle_functions
  */
-template <typename class_t, typename T, typename action_t = std::function<typename function_remove_const<T>::type>>
-action_t bind(const std::shared_ptr<class_t>& obj, T class_t::* method)
-{
-  return [wp = std::weak_ptr<class_t>(obj), method](auto&&... args) -> typename action_t::result_type
-  {
-    // lock() also keeps the object alive for the duration of the call
-    const auto obj_ = wp.lock();
-    if (!obj_) {
-      //inform the actuator about dead binding
-      throw invalid_action("bind: invalid object");
-    }
-    return ((*obj_).*method)(std::forward<decltype(args)>(args)...);
-  };
+template <typename class_t, typename T,
+          typename action_t = std::function<typename function_remove_const<T>::type>>
+action_t bind(const std::shared_ptr<class_t>& obj, T class_t::* method) {
+  return [wp = std::weak_ptr<class_t>(obj), method](auto&&... args) ->
+         typename action_t::result_type {
+           // lock() also keeps the object alive for the duration of the call
+           const auto obj_ = wp.lock();
+           if (!obj_) {
+             // inform the actuator about dead binding
+             throw invalid_action("bind: invalid object");
+           }
+           return ((*obj_).*method)(std::forward<decltype(args)>(args)...);
+         };
 }
 
 /**
  * @brief Binding to a class method.
  *
- * @attention It is not safe to use this binding when the pointed-to object may be destroyed. A null pointer is detected and reported as a dead action, but a pointer to an already destroyed object can not be distinguished from a valid one. Prefer the overload taking a std::shared_ptr.
+ * @attention It is not safe to use this binding when the pointed-to object may be destroyed. A null
+ * pointer is detected and reported as a dead action, but a pointer to an already destroyed object
+ * can not be distinguished from a valid one. Prefer the overload taking a std::shared_ptr.
  *
- * @remark It is provided for convenience of use: within a class it is safe to create bindings through <B>this</B> pointer.
+ * @remark It is provided for convenience of use: within a class it is safe to create bindings
+ * through <B>this</B> pointer.
  *
- * @remark Binding a null pointer produces an action that is always dead: invoking it throws invalid_action, and an \ref actuator drops it.
+ * @remark Binding a null pointer produces an action that is always dead: invoking it throws
+ * invalid_action, and an \ref actuator drops it.
  *
  * @param obj - Pointer to class.
- * @param method - Pointer to function member. It is specified as &\<class type\>::\<function member\>
+ * @param method - Pointer to function member. It is specified as &\<class type\>::\<function
+ * member\>
  * @return action_t - A std::function that wraps the pointer to function member.
  *
  * @ingroup untangle_functions
  */
-template <typename class_t, typename T, typename action_t = std::function<typename function_remove_const<T>::type>>
-action_t bind(class_t* obj, T class_t::* method)
-{
-  return [obj, method](auto&&... args) -> typename action_t::result_type
-  {
-    if (!obj)
-    {
-      //inform the actuator about dead binding
+template <typename class_t, typename T,
+          typename action_t = std::function<typename function_remove_const<T>::type>>
+action_t bind(class_t* obj, T class_t::* method) {
+  return [obj, method](auto&&... args) -> typename action_t::result_type {
+    if (!obj) {
+      // inform the actuator about dead binding
       throw invalid_action("bind: invalid object");
     }
     return ((obj)->*method)(std::forward<decltype(args)>(args)...);
   };
 }
 
-}
+}  // namespace untangle
