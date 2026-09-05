@@ -97,7 +97,7 @@ struct actuator final
    *
    * @return action_t
    */
-  action_t type()
+  action_t type() const
   {
     return nullptr;
   }
@@ -250,7 +250,7 @@ struct actuator final
    * @return true - if the actuator::actions list is not empty.
    * @return false - if the actuator::actions list is empty.
    */
-  bool is_connected() { return !actions.empty() || !map_actions.empty(); }
+  bool is_connected() const { return !actions.empty() || !map_actions.empty(); }
 
   /**
    * @brief Check if there is certain named action.
@@ -259,7 +259,7 @@ struct actuator final
    * @return true - if name can be found in actuator::map_actions
    * @return false - if name can not be found in actuator::map_actions
    */
-  bool has_action(std::string name) { return map_actions.find(name) != map_actions.end(); }
+  bool has_action(const std::string& name) const { return map_actions.find(name) != map_actions.end(); }
 };
 
 /**

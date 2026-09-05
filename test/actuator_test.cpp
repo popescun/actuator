@@ -757,4 +757,21 @@ TEST(test_actuator, test_move_does_not_copy)
   EXPECT_EQ(assigned.results.front().value, 11);
 }
 
+TEST(test_actuator, test_const_observers)
+{
+  const auto t = std::make_shared<triangle_mock>();
+  auto action = untangle::bind(t, &triangle_mock::rotate);
+
+  // A const actuator must still answer questions about itself. Before the
+  // observers were marked const these three lines did not compile.
+  const auto actuator_rotate = untangle::connect(std::make_pair(std::string("triangle"), &action));
+
+  EXPECT_TRUE(actuator_rotate.is_connected());
+  EXPECT_TRUE(actuator_rotate.has_action("triangle"));
+  EXPECT_FALSE(actuator_rotate.has_action("circle"));
+
+  untangle::actuator<decltype(actuator_rotate.type())> copy = actuator_rotate;
+  EXPECT_TRUE(copy.is_connected());
+}
+
 } // namespace untangle::test
