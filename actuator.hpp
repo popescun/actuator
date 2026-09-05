@@ -14,7 +14,6 @@
 #include <memory>
 #include <iostream>
 #include <type_traits>
-#include <cassert>
 #include <exception>
 
 namespace untangle
@@ -366,24 +365,23 @@ action_t bind(const std::shared_ptr<class_t>& obj, T class_t::* method)
   return [wp = std::weak_ptr<class_t>(obj), method](auto&&... args) -> typename action_t::result_type
   {
     // lock() also keeps the object alive for the duration of the call
-    if (const auto obj_ = wp.lock())
-    {
-      return ((*obj_).*method)(std::forward<decltype(args)>(args)...);
-    }
-    else
-    {
+    const auto obj_ = wp.lock();
+    if (!obj_) {
       //inform the actuator about dead binding
       throw invalid_action("bind: invalid object");
     }
+    return ((*obj_).*method)(std::forward<decltype(args)>(args)...);
   };
 }
 
 /**
  * @brief Binding to a class method.
  *
- * @attention It is not safe to use this binding to provide actions to an \ref actuator . The class object is provided through a pointer type. This pointer is captured internally in a lambda, so it can not be checked if it gets null.
+ * @attention It is not safe to use this binding when the pointed-to object may be destroyed. A null pointer is detected and reported as a dead action, but a pointer to an already destroyed object can not be distinguished from a valid one. Prefer the overload taking a std::shared_ptr.
  *
  * @remark It is provided for convenience of use: within a class it is safe to create bindings through <B>this</B> pointer.
+ *
+ * @remark Binding a null pointer produces an action that is always dead: invoking it throws invalid_action, and an \ref actuator drops it.
  *
  * @param obj - Pointer to class.
  * @param method - Pointer to function member. It is specified as &\<class type\>::\<function member\>
@@ -396,7 +394,7 @@ action_t bind(class_t* obj, T class_t::* method)
 {
   return [obj, method](auto&&... args) -> typename action_t::result_type
   {
-    if (obj == nullptr)
+    if (!obj)
     {
       //inform the actuator about dead binding
       throw invalid_action("bind: invalid object");
