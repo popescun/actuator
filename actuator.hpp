@@ -63,7 +63,7 @@ struct actuator final
    * std::function supports only equality operator for nullptr (two std::function(s) can not compare).
    */
   using actions_t = std::list<action_t*>;
-  using map_actions_t = std::map<std::string, action_t*>;
+  using actions_map_t = std::map<std::string, action_t*>;
   using result_t = std::conditional<std::is_void<typename action_t::result_type>::value, int, typename action_t::result_type>;
   /**
    * @brief Results container type.
@@ -74,7 +74,7 @@ struct actuator final
   using results_t = std::vector<typename result_t::type>;
 
   actions_t actions; //!< Actions list.
-  map_actions_t map_actions; //!< Actions list.
+  actions_map_t actions_map; //!< Named actions map.
   results_t results; //!< Actions return values list.
 
   actuator() = default;
@@ -110,7 +110,7 @@ struct actuator final
   void reset()
   {
     actions.clear();
-    map_actions.clear();
+    actions_map.clear();
     results.clear();
   }
 
@@ -173,8 +173,8 @@ struct actuator final
   void invoke_action(std::string name, Args&&... args)
   {
     results.clear();
-    const auto& it = map_actions.find(name);
-    if (it != map_actions.end())
+    const auto& it = actions_map.find(name);
+    if (it != actions_map.end())
     {
       try
       {
@@ -187,7 +187,7 @@ struct actuator final
       catch (const invalid_action& ia)
       {
         std::cout << ia.what() << std::endl;
-        map_actions.erase(name);
+        actions_map.erase(name);
       }
     }
   }
@@ -213,7 +213,7 @@ struct actuator final
    */
   void add(std::string name, action_t* action)
   {
-    map_actions.emplace(name, action);
+    actions_map.emplace(name, action);
   }
 
   /**
@@ -241,7 +241,7 @@ struct actuator final
    */
   void remove(const std::string& name)
   {
-    map_actions.erase(name);
+    actions_map.erase(name);
   }
 
   /**
@@ -250,16 +250,16 @@ struct actuator final
    * @return true - if the actuator::actions list is not empty.
    * @return false - if the actuator::actions list is empty.
    */
-  bool is_connected() const { return !actions.empty() || !map_actions.empty(); }
+  bool is_connected() const { return !actions.empty() || !actions_map.empty(); }
 
   /**
    * @brief Check if there is certain named action.
    *
    * @param name - Name associated with the action.
-   * @return true - if name can be found in actuator::map_actions
-   * @return false - if name can not be found in actuator::map_actions
+   * @return true - if name can be found in actuator::actions_map
+   * @return false - if name can not be found in actuator::actions_map
    */
-  bool has_action(const std::string& name) const { return map_actions.find(name) != map_actions.end(); }
+  bool has_action(const std::string& name) const { return actions_map.find(name) != actions_map.end(); }
 };
 
 /**
@@ -294,8 +294,8 @@ actuator<action_t> connect(action_t& A1, Actions&... An)
 template <typename actuator_t>
 void remove_empty_actions(actuator_t& actuator)
 {
-  std::vector<typename actuator_t::map_actions_t::const_iterator> removable_iterators;
-  for (auto it = actuator.map_actions.begin(); it != actuator.map_actions.end(); ++it)
+  std::vector<typename actuator_t::actions_map_t::const_iterator> removable_iterators;
+  for (auto it = actuator.actions_map.begin(); it != actuator.actions_map.end(); ++it)
   {
     if (it->second == nullptr)
     {
@@ -304,7 +304,7 @@ void remove_empty_actions(actuator_t& actuator)
   }
   for (auto it: removable_iterators)
   {
-    actuator.map_actions.erase(it);
+    actuator.actions_map.erase(it);
   }
 }
 
@@ -313,7 +313,7 @@ actuator<action_t> connect(std::pair<key_t, action_t*> A1, Actions... An)
 {
   using actuator_t = untangle::actuator<action_t>;
   actuator_t actuator;
-  actuator.map_actions = {A1, An...};
+  actuator.actions_map = {A1, An...};
 
   // remove empty actions
   remove_empty_actions(actuator);
