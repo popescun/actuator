@@ -394,7 +394,7 @@ template <typename class_t, typename T, typename action_t = std::function<typena
 action_t bind(class_t* obj, T class_t::* method)
 {
   assert(obj != nullptr);
-  return [obj, method](auto&&... args) mutable -> typename action_t::result_type
+  return [obj, method](auto&&... args) -> typename action_t::result_type
   {
     return ((obj)->*method)(std::forward<decltype(args)>(args)...);
   };
