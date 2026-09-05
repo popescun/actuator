@@ -69,12 +69,8 @@ jobs:
       - name: Build
         run: cmake --build test/build --config Release
 
-      # Single-config puts the binary in bin/, Visual Studio in bin/Release/,
-      # and Windows adds .exe -- so locate it rather than hard-coding a path.
+      # gtest_discover_tests() registers every TEST() with CTest, so a failure
+      # names the case instead of reporting the whole binary as one pass/fail.
+      # --build-config matters on multi-config generators (Visual Studio).
       - name: Test
-        shell: bash
-        run: |
-          exe=$(find test/build/bin -type f -name 'actuator_test*' ! -name '*.pdb' | head -1)
-          if [ -z "$exe" ]; then echo "error: test binary not found"; find test/build/bin -type f; exit 1; fi
-          echo "running $exe"
-          "$exe"
+        run: ctest --test-dir test/build --build-config Release --output-on-failure

@@ -22,6 +22,11 @@ set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 
 FetchContent_MakeAvailable(googletest)
 
+# gtest_discover_tests() lives in the GoogleTest module; enable_testing()
+# creates the CTest targets it registers into.
+include(GoogleTest)
+enable_testing()
+
 #include headers directories
 include_directories(
   ../
@@ -35,3 +40,7 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/bin)
 add_executable(${PROJECT_NAME} ${SOURCE_FILES})
 
 target_link_libraries(${PROJECT_NAME} gtest_main gmock)
+
+# Register each TEST() with CTest individually, so a failure names the case
+# rather than reporting the whole binary as one pass/fail.
+gtest_discover_tests(${PROJECT_NAME})
