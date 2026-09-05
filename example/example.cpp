@@ -5,7 +5,7 @@
  * @author Nicu Popescu
  * @date 2018 - 2021
  */
-#include <actuator.h>
+#include <actuator.hpp>
 
 class shape
 {
