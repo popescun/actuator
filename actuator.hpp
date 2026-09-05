@@ -288,7 +288,7 @@ auto connect(action_t& A1, Actions&... An)
   {
     return (*action == nullptr);
   });
-  return std::move(actuator);
+  return actuator;
 }
 
 template <typename actuator_t>
@@ -317,7 +317,7 @@ auto connect(std::pair<key_t, action_t*> A1, Actions... An)
 
   // remove empty actions
   remove_empty_actions(actuator);
-  return std::move(actuator);
+  return actuator;
 }
 
 // generic helpers to remove const qualifier from a function type,
