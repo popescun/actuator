@@ -277,7 +277,7 @@ struct actuator final
  * \snippet actuator_test.cpp test_polymorphism2
  */
 template<typename action_t, typename ...Actions>
-auto connect(action_t& A1, Actions&... An)
+actuator<action_t> connect(action_t& A1, Actions&... An)
 {
   using actuator_t = untangle::actuator<action_t>;
   actuator_t actuator;
@@ -309,7 +309,7 @@ void remove_empty_actions(actuator_t& actuator)
 }
 
 template<typename key_t, typename action_t, typename ...Actions>
-auto connect(std::pair<key_t, action_t*> A1, Actions... An)
+actuator<action_t> connect(std::pair<key_t, action_t*> A1, Actions... An)
 {
   using actuator_t = untangle::actuator<action_t>;
   actuator_t actuator;
