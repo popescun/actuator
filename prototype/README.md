@@ -3,6 +3,9 @@
 Prototypes of the ulang connection mechanism - *intrinsic interfaces*, *actuators*, *funcrefs* and
 the `<intf>` operator - expressed in C++ on top of `untangle::actuator`.
 
+*Struct* is ulang's word for the declaring type. In C++ an endpoint can equally be a `class`, since
+the two differ only in default access - see [classes, not only structs](#classes-not-only-structs).
+
 Everything here is buildable:
 
 ```sh
@@ -11,6 +14,7 @@ cmake -S . -B build && cmake --build build
 ./build/bin/intrinsic_interface_using_slots
 ./build/bin/intrinsic_interface_using_nttp
 ./build/bin/intrinsic_interface_using_named
+./build/bin/class_endpoints
 ```
 
 ## What turned out to be possible
@@ -191,6 +195,52 @@ pair by member name rather than by position. **B** where an interface has to be 
 module boundary, or where a member is not usable with `&self_t::member`. **C** where macros are
 unwelcome at any price.
 
+## Classes, not only structs
+
+`struct` and `class` differ only in default access, and every approach here works with either - the
+demo in `src/class_endpoints_example.cpp` connects two classes of different types, with their state
+and their methods private. Access is what the three rules below are about.
+
+**The interface member must be reachable where the connection is written.**
+`ENABLE_CONNECT_OPERATOR(pos_intf)` expands to a namespace scope lambda doing `end_point.pos_intf`,
+so a private interface is an error at the point of use - `'pos_intf' is a private member of
+'point'`. Declare it `public:`, or keep it private and befriend an accessor. The macro's accessor
+can not be befriended, because a closure type has no name to put in a `friend` declaration; the same
+line written with a named class can:
+
+```cpp
+struct pos_accessor {
+  template <typename endpoint_t>
+  auto& operator()(endpoint_t& end_point) const { return end_point.pos_intf; }
+};
+inline constexpr auto pos_intf = untangle::intf(pos_accessor{});
+
+class point : public untangle::enable_interfaces<point> {
+ public:
+  friend struct pos_accessor;
+
+ private:
+  INTRINSIC_INTERFACE(pos_intf, set, get_x)   // stays private, and `a <pos_intf> b` still compiles
+};
+```
+
+**The members an interface lists may stay private.** They are named inside the generated
+`<intf>_t`, which is a nested class and therefore has access to the privates of the class enclosing
+it - a class whose `set` is private connects to one whose `set` is public. Approach C is the one
+exception, and only at the call site: `p.pos_intf.act<&point::set>()(3, 4)` names the member where
+the dispatch is written, so it needs a public `set` unless the dispatch happens inside the class.
+The generated `set_act` of A, B and D names nothing and has no such constraint.
+
+**The interface must be declared after the members it lists.** A class body is not a complete-class
+context, so the names in `INTRINSIC_INTERFACE(pos_intf, set, get_x)` must already be visible -
+otherwise `no member named 'set' in 'point'`. This holds for a struct too; a class only meets it
+more often, because a leading `public:` block invites declaring the interface before the members.
+
+Two things that look like they should matter and do not. The CRTP base may be inherited privately -
+`class point : untangle::enable_interfaces<point>` - because `self_t` is only ever used inside the
+class body and nothing converts an endpoint to that base. And the generated `<intf>_t` is declared
+`struct` by the macro, so its own members stay public whatever the enclosing class does.
+
 ## What is not reproduced
 
 - **`.parent` type inference.** ulang infers the parent's type from the wiring; C++ can not, so
@@ -236,10 +286,12 @@ them through `std::shared_ptr`/`std::unique_ptr`.
 | `include/3_intrinsic_interface_using_nttp.hpp` | C - the member pointer template |
 | `include/4_intrinsic_interface_using_named.hpp` | D - the thin macro over C |
 | `src/<n>_intrinsic_interface_using_*_example.cpp` | one runnable demo per approach |
+| `src/class_endpoints_example.cpp` | classes as endpoints - the access rules, on approach D |
 
 The headers are in `include/` and the demos in `src/`; `include/` is on the include path, so a demo
 includes its approach by bare file name. The leading digit keeps the four approaches in reading
-order, A to D, while the shared core carries no index because it belongs to all of them.
+order, A to D, while the shared core and the class demo carry no index because they belong to all
+of them.
 
 ## clang-format
 

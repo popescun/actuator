@@ -22,3 +22,6 @@ add_executable(intrinsic_interface_using_macro src/1_intrinsic_interface_using_m
 add_executable(intrinsic_interface_using_slots src/2_intrinsic_interface_using_slots_example.cpp)
 add_executable(intrinsic_interface_using_nttp src/3_intrinsic_interface_using_nttp_example.cpp)
 add_executable(intrinsic_interface_using_named src/4_intrinsic_interface_using_named_example.cpp)
+
+# The same connections declared in a class instead of a struct - approach D throughout.
+add_executable(class_endpoints src/class_endpoints_example.cpp)
