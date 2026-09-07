@@ -1,0 +1,157 @@
+Reviewed actuator.hpp. Real concerns below, ordered by severity.
+
+  Bugs
+
+  actuator::reset() won't compile if called — actuator.hpp:107-110
+  void reset() { actions.reset(); }
+  std::list has no reset(). Should be actions.clear() (and probably
+  mapActions.clear() and results.clear() too). Currently a latent
+  landmine — only blows up when someone first calls it.
+
+  bind(shared_ptr, method) captures the shared_ptr by reference —
+  actuator.hpp:363-378
+  return [&obj, method](auto&&... args) mutable -> ... {
+    if (obj) { ... }
+    else { throw invalid_action(...); }
+  };
+  The lambda outlives bind's parameter. The only reason this works in
+  your tests is that the caller keeps the named shared_ptr variable alive
+   in the same scope. Any of these will silently dangle:
+  - bind(std::make_shared<T>(), &T::m) — temporary dies immediately
+  - auto a = bind(makePtr(), &T::m); — return-value shared_ptr dies at
+  the end of the full expression
+  - Returning the action from a function
+
+  The obj.reset() test in test_invalid_action only works because of the
+  reference capture (capture-by-value would never observe the reset). So
+  the design is intentional but fragile. Two safer options:
+  1. Capture by value ([obj=obj, method]) — but then reset() from outside
+   won't be observed; you'd need a weak_ptr capture instead.
+  2. Capture std::weak_ptr by value and lock() inside the lambda. This is
+   the conventional safe pattern and preserves the dead-binding
+  semantics.
+
+  operator= self-assignment wipes everything — actuator.hpp:98-105
+  actions.clear(); mapActions.clear();
+  actions = other.actions; mapActions = other.mapActions;
+  If &other == this, you clear, then copy from the just-cleared self →
+  empty actuator. Add if (this == &other) return *this;.
+
+  operator() mutates caller-owned std::functions through the stored
+  pointer — actuator.hpp:139-143
+  catch (const invalid_action& ia) { ... *action = nullptr; }
+  The actuator stores actionT* to objects the caller owns; on a dead
+  binding it nulls the caller's std::function. Surprising side-effect —
+  the caller may still be holding action1 and now finds it empty.
+  invokeAction instead just erases from the map (actuator.hpp:172) and
+  leaves the caller's function intact — inconsistent.
+
+  Design concerns
+
+  invalid_action privately inherits std::exception — actuator.hpp:31
+  Private inheritance means catch (const std::exception&) will not catch
+  it. And the public data member std::string what shadows the virtual
+  std::exception::what() (different signature, same name) — confusing for
+   anyone calling e.what(). Either inherit publicly and override what()
+  const noexcept, or don't inherit at all.
+
+  Raw actionT* to caller-owned std::functions — actuator.hpp:59,287
+  The whole lifetime model relies on the caller keeping every action
+  object alive for the actuator's lifetime. There's no enforcement.
+  Storing std::function by value (and using indices/IDs for removal)
+  would be much safer; the equality-comparison limitation cited in the
+  comment is solvable with a handle/token.
+
+  Partial SFINAE → if constexpr migration
+  operator() uses if constexpr (modernized in commit 47ee6db), but
+  invokeAction still calls select_actuate with enable_if_t overloads. The
+   non-void select_actuate (actuator.hpp:261-266) also returns a
+  default-constructed T::result_type for no reason — the caller discards
+  it. Finish the migration and drop select_actuate.
+
+  return std::move(local) in both connect overloads —
+  actuator.hpp:294,323
+  Disables NRVO. Just return actuator;.
+
+  Missing const on observers — actuator.hpp:87,235,244
+  type(), is_connected(), and has_action() should be const (and
+  has_action should take const std::string&). Currently you can't call
+  any of them on a const actuator&.
+
+  Minor
+
+  - mapActions doc comment says "Actions list" (actuator.hpp:71) — it's a
+   map.
+  - mutable on the bind lambdas (actuator.hpp:366,397) is unnecessary —
+  nothing in the body mutates a capture.
+  - resultsT for void actions resolves to std::vector<int>
+  (actuator.hpp:61,68). Harmless because nothing pushes into it on the
+  void path, but it's wasted storage on every actuator instance.
+  - bind(classT*, method) (actuator.hpp:394) asserts non-null but does no
+   runtime check inside the lambda — documented as unsafe, but a nullptr
+  check throwing invalid_action would make the two bind overloads
+  behaviorally consistent.
+
+    Fix plan for actuator.hpp
+    --------------------------
+
+    Bugs (correctness)
+
+    1. Fix reset() — replace actions.reset(); with actions.clear(); mapActions.clear();
+    results.clear(); so the method actually compiles and does what its name implies.
+    2. Stop dangling reference in bind(shared_ptr, method) — change capture from [&obj, method]
+    to a std::weak_ptr captured by value: [wobj = std::weak_ptr<classT>(obj), method](auto&&...
+    args) -> ... { if (auto p = wobj.lock()) return ((*p).*method)(...); else throw
+    invalid_action(...); }. Drop the unnecessary mutable. This preserves the obj.reset() →
+    invalid_action semantics that test_invalid_action relies on, while making it safe to bind
+    from temporaries.
+    3. Self-assignment guard in operator= — add if (this == &other) return *this; at the top
+    before the clear() calls. Also clear results for consistency, or leave it untouched (pick
+    one — current code is half-done).
+    4. Stop mutating caller-owned std::function from operator()'s catch — drop *action =
+    nullptr;. Track dead actions locally (e.g. collect iterators or a std::vector<actionT*> of
+    "to-erase" entries during the loop) and actions.remove(...) them after the loop. This makes
+    the failure handling consistent with invokeAction (which only erases from the map) and
+    removes a surprising side-effect on the caller's function objects.
+
+    Design
+
+    5. Fix invalid_action — change private inheritance to public, remove the public std::string
+    what data member, and instead store the message and override const char* what() const
+    noexcept override. Keeps catch (const std::exception&) working and removes the
+    name-shadowing of what.
+    6. Finish the SFINAE → if constexpr migration — rewrite invokeAction body to mirror
+    operator(): use if constexpr (std::is_same_v<typename actionT::result_type, void>) directly.
+     Then delete both select_actuate overloads (the non-void one's bogus default-constructed
+    return goes with it).
+    7. Drop std::move on the local in both connect overloads — change return
+    std::move(actuator); to return actuator; to re-enable NRVO.
+    8. Add const to observers — type(), is_connected(), has_action() become const. Make
+    has_action take const std::string& instead of std::string by value.
+
+    Minor
+
+    9. Fix doc comment on mapActions — change //!< Actions list. to //!< Named actions map.
+    (actuator.hpp:71).
+    10. Remove mutable from both bind lambdas — nothing in either body mutates a capture;
+    mutable was dead.
+    11. Avoid the std::vector<int> results allocation for void actuators — specialize resultsT
+    so void result types yield an empty/no-op type, e.g. using resultsT =
+    std::conditional_t<std::is_void_v<...>, std::tuple<>, std::vector<typename
+    actionT::result_type>>;. Lower priority — only worth doing if the partial-migration cleanup
+    in (6) makes it natural.
+    12. Make bind(classT*, method) runtime-safe — inside the lambda, if (obj == nullptr) throw
+    invalid_action("bind::method: invalid object"); so its failure mode matches the shared_ptr
+    overload instead of relying on a debug-only assert.
+
+    Suggested commit order
+
+    13. Land bugs first as one commit — items 1–4 are short, isolated, and each has (or will
+    have) a test. Tests already in actuator_test.cpp should still pass; add a new
+    TEST(test_actuator, test_self_assignment) and a TEST(test_actuator,
+    test_bind_temporary_shared_ptr) to lock in 2 and 3.
+    14. Land design changes as a second commit — items 5–8 together are a coherent API/cleanup
+    pass and don't change behavior in ways the existing tests should catch. Run the full suite
+    after.
+    15. Land minor cleanups as a third commit — items 9–12. Item 11 may want benchmarking
+    against performance_test.cpp before/after; if it's noise, skip.
