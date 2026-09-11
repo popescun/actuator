@@ -328,16 +328,15 @@ struct function_remove_const<R(Args...) const> {
 template <typename class_t, typename T,
           typename action_t = std::function<typename function_remove_const<T>::type>>
 action_t bind(const std::shared_ptr<class_t>& obj, T class_t::* method) {
-  return [wp = std::weak_ptr<class_t>(obj), method](auto&&... args) ->
-         typename action_t::result_type {
-           // lock() also keeps the object alive for the duration of the call
-           const auto obj_ = wp.lock();
-           if (!obj_) {
-             // inform the actuator about dead binding
-             throw invalid_action("bind: invalid object");
-           }
-           return ((*obj_).*method)(std::forward<decltype(args)>(args)...);
-         };
+  return [wp = std::weak_ptr<class_t>(obj), method](auto&&... args) -> action_t::result_type {
+    // lock() also keeps the object alive for the duration of the call
+    const auto obj_ = wp.lock();
+    if (!obj_) {
+      // inform the actuator about dead binding
+      throw invalid_action("bind: invalid object");
+    }
+    return ((*obj_).*method)(std::forward<decltype(args)>(args)...);
+  };
 }
 
 /**
@@ -363,7 +362,7 @@ action_t bind(const std::shared_ptr<class_t>& obj, T class_t::* method) {
 template <typename class_t, typename T,
           typename action_t = std::function<typename function_remove_const<T>::type>>
 action_t bind(class_t* obj, T class_t::* method) {
-  return [obj, method](auto&&... args) -> typename action_t::result_type {
+  return [obj, method](auto&&... args) -> action_t::result_type {
     if (!obj) {
       // inform the actuator about dead binding
       throw invalid_action("bind: invalid object");
