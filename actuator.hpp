@@ -7,7 +7,6 @@
 
 #include <exception>
 #include <functional>
-#include <iostream>
 #include <list>
 #include <map>
 #include <memory>
@@ -97,6 +96,12 @@ auto last_arg(Args&&... args) {
  * @remark \ref invoke_action() invokes one single action, so nothing follows it and the
  * convention does not constrain it.
  *
+ * @remark Failure convention: an action that throws does not stop the invocation. What it threw
+ * is stored in actuator::errors, one std::exception_ptr per failure, and the actions after it
+ * still run. An untangle::invalid_action means a dead binding, so that action is dropped as well;
+ * anything else leaves the action in place. Nothing is printed and nothing escapes the call - the
+ * caller reads actuator::errors and decides.
+ *
  * @remark Ownership convention: an actuator normally does not own its actions. It stores
  * pointers to std::function objects the caller keeps alive, and those have to outlive it.
  * \ref add(action_t&&) is the exception -- it moves the action into actuator::owned and
@@ -126,10 +131,17 @@ struct actuator final {
    * Upon the actuator invocation, the returns can be extracted from \ref results.
    */
   using results_t = std::vector<typename result_t::type>;
+  /**
+   * @brief Errors container type.
+   *
+   * It holds what the actions threw, as std::exception_ptr, in the order they were invoked.
+   */
+  using errors_t = std::vector<std::exception_ptr>;
 
   actions_t actions;          //!< Actions list.
   actions_map_t actions_map;  //!< Named actions map.
   results_t results;          //!< Actions return values list.
+  errors_t errors;            //!< What the actions threw. See \ref errors_t.
 
   /**
    * @brief Actions this actuator owns, as added by \ref add(action_t&&).
@@ -173,7 +185,7 @@ struct actuator final {
   action_t type() const { return nullptr; }
 
   /**
-   * @brief Remove all actions and any stored results.
+   * @brief Remove all actions, and any stored results and errors.
    *
    * After this call the actuator is empty: actuator::is_connected() returns false. The
    * actions it owns are destroyed, so every handle returned by \ref add(action_t&&) is
@@ -183,6 +195,7 @@ struct actuator final {
     actions.clear();
     actions_map.clear();
     results.clear();
+    errors.clear();
     owned.clear();
   }
 
@@ -224,6 +237,7 @@ struct actuator final {
       actions_map.emplace(entry.first, translate(entry.second));
     }
     results = other.results;
+    errors = other.errors;
   }
 
   /**
@@ -327,10 +341,14 @@ struct actuator final {
    * @warning The same argument pack is forwarded to every action in the list, so the argument
    * convention on \ref actuator applies here in full: an action that consumes an argument
    * leaves the actions after it with a moved-from object.
+   *
+   * @remark Nothing escapes this call: what an action throws goes to actuator::errors, and the
+   * actions after it still run. See the failure convention on \ref actuator.
    */
   template <typename... Args>
   void operator()(Args&&... args) {
     results.clear();
+    errors.clear();
 
     // Copied up front, before any action can move the callback out of the argument pack.
     auto last = last_arg(args...);
@@ -356,9 +374,14 @@ struct actuator final {
           results.push_back((*action)(std::forward<Args>(args)...));
           invoke_callback(last);
         }
-      } catch (const invalid_action& ia) {
-        std::cout << ia.what() << std::endl;
+      } catch (const invalid_action&) {
+        // A dead binding is not coming back: it is recorded and the action is dropped.
+        errors.push_back(std::current_exception());
         dead_actions.push_back(action);
+      } catch (...) {
+        // Anything else is the action's own failure. It is recorded, the action is kept, and the
+        // actions behind it still run.
+        errors.push_back(std::current_exception());
       }
     }
 
@@ -376,6 +399,9 @@ struct actuator final {
    * \ref operator()() drops one from actuator::actions. Nothing is invoked and nothing
    * escapes; actuator::has_action() reports it gone afterwards.
    *
+   * @remark What the action throws is stored in actuator::errors, as it is for
+   * \ref operator()(). See the failure convention on \ref actuator.
+   *
    * @param name - Key associated with the action. Invoking a key that is not in the map does
    * nothing.
    * @param args - Arguments list must match the action arity. A trailing callback is invoked
@@ -384,6 +410,7 @@ struct actuator final {
   template <typename... Args>
   void invoke_action(const std::string& name, Args&&... args) {
     results.clear();
+    errors.clear();
 
     // Copied up front, before the action can move the callback out of the argument pack.
     auto last = last_arg(args...);
@@ -410,11 +437,13 @@ struct actuator final {
         results.push_back((*it->second)(std::forward<Args>(args)...));
         invoke_callback(last);
       }
-    } catch (const invalid_action& ia) {
-      std::cout << ia.what() << std::endl;
+    } catch (const invalid_action&) {
+      errors.push_back(std::current_exception());
       const action_t* dead_action = it->second;
       actions_map.erase(name);
       release_owned(dead_action);
+    } catch (...) {
+      errors.push_back(std::current_exception());
     }
   }
 

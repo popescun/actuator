@@ -1256,4 +1256,66 @@ TEST(test_actuator, test_move_assignment_carries_the_owned_actions) {
   ASSERT_THAT(actuator_moved.results, ::testing::ElementsAre(20));
 }
 
+TEST(test_actuator, test_an_action_that_throws_does_not_stop_the_ones_behind_it) {
+  // Each action is invoked in isolation: what one throws is recorded and the rest still run.
+  untangle::actuator<std::function<int(int)>> actuator_scale;
+  actuator_scale.add([](int v) { return v * 2; });
+  actuator_scale.add([](int) -> int { throw std::runtime_error("the action threw"); });
+  actuator_scale.add([](int v) { return v * 3; });
+
+  actuator_scale(10);
+
+  ASSERT_THAT(actuator_scale.results, ::testing::ElementsAre(20, 30));
+  ASSERT_EQ(actuator_scale.errors.size(), 1);
+  ASSERT_EQ(actuator_scale.actions.size(), 3) << "an action that threw is not a dead one";
+}
+
+TEST(test_actuator, test_what_an_action_threw_is_in_errors) {
+  untangle::actuator<std::function<void(void)>> actuator_notify;
+  actuator_notify.add([] { throw std::runtime_error("the action threw"); });
+
+  actuator_notify();
+
+  ASSERT_EQ(actuator_notify.errors.size(), 1);
+  EXPECT_THROW(std::rethrow_exception(actuator_notify.errors.front()), std::runtime_error);
+}
+
+TEST(test_actuator, test_a_dead_binding_is_recorded_and_dropped) {
+  // A dead binding used to be printed and dropped. It is still dropped; what it threw is now the
+  // caller's to read.
+  auto shape_obj = std::make_shared<triangle>();
+  untangle::actuator<std::function<void(int)>> actuator_rotate;
+  actuator_rotate.add(untangle::bind(shape_obj, &triangle::rotate));
+
+  shape_obj.reset();
+  actuator_rotate(90);
+
+  ASSERT_EQ(actuator_rotate.errors.size(), 1);
+  EXPECT_THROW(std::rethrow_exception(actuator_rotate.errors.front()), untangle::invalid_action);
+  ASSERT_FALSE(actuator_rotate.is_connected()) << "a dead binding is dropped";
+}
+
+TEST(test_actuator, test_errors_belong_to_the_last_invocation) {
+  untangle::actuator<std::function<void(void)>> actuator_notify;
+  auto* handle = actuator_notify.add([] { throw std::runtime_error("the action threw"); });
+
+  actuator_notify();
+  ASSERT_EQ(actuator_notify.errors.size(), 1);
+
+  actuator_notify.remove(handle);
+  actuator_notify.add([] {});
+  actuator_notify();
+  ASSERT_TRUE(actuator_notify.errors.empty()) << "the previous invocation's errors were kept";
+}
+
+TEST(test_actuator, test_invoke_action_records_what_the_action_threw) {
+  untangle::actuator<std::function<void(void)>> actuator_notify;
+  actuator_notify.add("throwing", [] { throw std::runtime_error("the action threw"); });
+
+  actuator_notify.invoke_action("throwing");
+
+  ASSERT_EQ(actuator_notify.errors.size(), 1);
+  ASSERT_TRUE(actuator_notify.has_action("throwing")) << "an action that threw is not a dead one";
+}
+
 }  // namespace untangle::test
