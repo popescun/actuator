@@ -1209,4 +1209,51 @@ TEST(test_actuator, test_invoke_action_ignores_an_unknown_name) {
   ASSERT_TRUE(actuator_scale.has_action("double")) << "the other actions are untouched";
 }
 
+TEST(test_actuator, test_move_keeps_the_handles_of_the_source) {
+  // Moving an actuator has to leave every handle already handed out pointing at a live action:
+  // actuator::actions holds addresses into actuator::owned, and a std::list move transfers the
+  // nodes rather than the elements, so the addresses survive the move.
+  untangle::actuator<std::function<int(int)>> actuator_scale;
+  auto* handle = actuator_scale.add([](int v) { return v * 2; });
+  auto* named_handle = actuator_scale.add("triple", [](int v) { return v * 3; });
+
+  const auto actuator_moved = std::move(actuator_scale);
+
+  ASSERT_EQ(actuator_moved.actions.front(), handle) << "the action moved to another address";
+  ASSERT_EQ(actuator_moved.actions_map.at("triple"), named_handle);
+  ASSERT_EQ(&actuator_moved.owned.front(), handle) << "the handle is not the stored action";
+}
+
+TEST(test_actuator, test_move_carries_the_owned_actions_and_empties_the_source) {
+  untangle::actuator<std::function<int(int)>> actuator_scale;
+  actuator_scale.add([](int v) { return v * 2; });
+  actuator_scale.add("triple", [](int v) { return v * 3; });
+
+  auto actuator_moved = std::move(actuator_scale);
+
+  ASSERT_FALSE(actuator_scale.is_connected()) << "the source kept actions it no longer owns";
+  ASSERT_TRUE(actuator_scale.owned.empty());
+
+  actuator_moved(10);
+  ASSERT_THAT(actuator_moved.results, ::testing::ElementsAre(20));
+  actuator_moved.invoke_action("triple", 10);
+  ASSERT_THAT(actuator_moved.results, ::testing::ElementsAre(30));
+}
+
+TEST(test_actuator, test_move_assignment_carries_the_owned_actions) {
+  untangle::actuator<std::function<int(int)>> actuator_scale;
+  auto* handle = actuator_scale.add([](int v) { return v * 2; });
+
+  untangle::actuator<std::function<int(int)>> actuator_moved;
+  actuator_moved.add([](int v) { return v; });
+  actuator_moved = std::move(actuator_scale);
+
+  ASSERT_EQ(actuator_moved.actions.size(), 1) << "the actions it held are gone";
+  ASSERT_EQ(actuator_moved.actions.front(), handle);
+  ASSERT_FALSE(actuator_scale.is_connected());
+
+  actuator_moved(10);
+  ASSERT_THAT(actuator_moved.results, ::testing::ElementsAre(20));
+}
+
 }  // namespace untangle::test
