@@ -876,4 +876,41 @@ TEST(test_actuator, test_callback_with_return_type_is_not_accepted) {
   ASSERT_EQ(calls, 0) << "a callable returning non-void is not a callback and must not run";
 }
 
+TEST(test_actuator, test_every_action_receives_a_usable_callback) {
+  // The argument convention: an action must not take ownership of what it is invoked with,
+  // because operator() forwards one argument pack to every action in the list. Honour it --
+  // here by invoking with an lvalue -- and each action in turn is handed a callback it can
+  // actually call, alongside the actuator's own invocation of it.
+  //
+  // Violating it is undetectable from inside the actuator: pass the callback below as
+  // std::move(cbk) and the second action receives an empty std::function instead, because
+  // its by value parameter move constructs from the same pack the first action already
+  // emptied. Nothing in the library can diagnose that; it is the caller and the action
+  // signatures together that decide it.
+  int usable_callbacks = 0;
+  std::function<int(int, std::function<void(int)>)> first =
+      [&usable_callbacks](int v, std::function<void(int)> cbk) {
+        if (cbk) {
+          ++usable_callbacks;
+        }
+        return v;
+      };
+  std::function<int(int, std::function<void(int)>)> second =
+      [&usable_callbacks](int v, std::function<void(int)> cbk) {
+        if (cbk) {
+          ++usable_callbacks;
+        }
+        return v * 2;
+      };
+
+  auto actuator = untangle::connect(first, second);
+  std::vector<int> completed;
+  std::function<void(int)> cbk = [&completed](int v) { completed.push_back(v); };
+  actuator(10, cbk);
+
+  ASSERT_EQ(actuator.results.size(), 2);
+  ASSERT_THAT(completed, ::testing::ElementsAre(10, 20));
+  ASSERT_EQ(usable_callbacks, 2) << "every action must be handed a callback it can call";
+}
+
 }  // namespace untangle::test

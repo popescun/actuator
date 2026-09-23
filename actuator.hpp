@@ -80,6 +80,23 @@ auto last_arg(Args&&... args) {
  * is left alone, and by the same rule a callback written to return something is silently
  * not invoked. A callback returns nothing.
  *
+ * @remark Argument convention: an action must not take ownership of the arguments it is
+ * invoked with. \ref operator()() forwards one argument pack to every action in the list,
+ * and an rvalue can be moved from only once, so an action that consumes an argument leaves
+ * the actions after it holding a moved-from object -- an empty std::function for a callback
+ * a later action means to call itself. The arguments are forwarded rather than copied so that
+ * a single action pays nothing for the broadcast; what that buys has to be respected by the
+ * actions.
+ *
+ * @warning An action does not have to move an argument in its body to consume it: a parameter
+ * taken **by value** is move constructed from an rvalue by the call itself. Take arguments by
+ * reference or const reference, or invoke with lvalues, whenever more than one action is
+ * connected. The behaviour is otherwise unpredictable, and it is the caller and the action
+ * signatures together that decide it -- an actuator cannot detect the violation.
+ *
+ * @remark \ref invoke_action() invokes one single action, so nothing follows it and the
+ * convention does not constrain it.
+ *
  * @tparam action_t Action type. It is specified as std::function<...>.
  */
 template <typename action_t>
@@ -209,6 +226,10 @@ struct actuator final {
    *
    * @param args - Arguments list must match the action arity. A trailing callback is invoked
    * once per action, with that action's return value; see the convention on \ref actuator.
+   *
+   * @warning The same argument pack is forwarded to every action in the list, so the argument
+   * convention on \ref actuator applies here in full: an action that consumes an argument
+   * leaves the actions after it with a moved-from object.
    */
   template <typename... Args>
   void operator()(Args&&... args) {
