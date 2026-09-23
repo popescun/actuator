@@ -840,4 +840,32 @@ TEST(test_actuator, test_callback_invoked_for_each_action) {
   ASSERT_THAT(seen, ::testing::ElementsAre(10, 20));
 }
 
+TEST(test_actuator, test_anonymous_lambda_as_callback) {
+  // The callback convention tests what the trailing argument can do, not what it is, so a
+  // lambda works without being wrapped in a std::function first.
+  int result = 0;
+  std::function<int(int, std::function<void(int)>)> action = [](int v, std::function<void(int)>) {
+    return v;
+  };
+
+  auto actuator = untangle::connect(action);
+  actuator(7, [&result](int v) { result = v; });
+
+  ASSERT_EQ(actuator.results.size(), 1);
+  ASSERT_EQ(result, 7);
+}
+
+TEST(test_actuator, test_trailing_non_callable_is_not_a_callback) {
+  // A trailing argument that cannot be called with the return type is an ordinary argument.
+  std::function<int(int, int)> action = [](int v, int w) {
+    return v + w;
+  };
+
+  auto actuator = untangle::connect(action);
+  actuator(2, 3);
+
+  ASSERT_EQ(actuator.results.size(), 1);
+  ASSERT_EQ(actuator.results.front(), 5);
+}
+
 }  // namespace untangle::test
