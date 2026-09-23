@@ -67,6 +67,13 @@ auto last_arg(Args&&... args) {
  *
  *@remark An actuator object can be constructed with an initial list of actions by \ref connect().
  *
+ * @remark Callback convention: when the last argument of an invocation is a
+ * std::function<void(R)>, R being the action return type, it is not passed on as a plain
+ * argument alone -- it is also treated as a completion callback. The action is invoked with
+ * the full argument list as usual, and the callback is then invoked with the action return
+ * value. It applies to \ref operator()() and to \ref invoke_action() alike. Actions returning
+ * void have no result to report, so no callback is invoked for them.
+ *
  * @tparam action_t Action type. It is specified as std::function<...>.
  */
 template <typename action_t>
@@ -128,15 +135,39 @@ struct actuator final {
   }
 
   /**
+   * @brief Invoke the trailing callback argument, if the invocation has one.
+   *
+   * Does nothing unless last_t is the callback type of the actuator, so any other trailing
+   * argument is left alone. See the callback convention on \ref actuator.
+   *
+   * @remark The caller must copy the callback out of the argument pack *before* invoking the
+   * action: an action taking it by value moves from the caller's std::function, which would
+   * leave this an empty function to call.
+   *
+   * @tparam last_t Type of the last argument, as returned by \ref last_arg().
+   * @param last - Last argument value, copied before the action was invoked.
+   */
+  template <typename last_t>
+  void invoke_callback(last_t& last) {
+    if constexpr (std::is_same_v<last_t, std::function<void(typename result_t::type)>>) {
+      last(results.back());
+    }
+  }
+
+  /**
    * @brief The call operator.
    *
    * Actions in the actuator#actions list are triggered by invoking the call operator.
    *
-   * @param args - Arguments list must match the action arity.
+   * @param args - Arguments list must match the action arity. A trailing callback is invoked
+   * once per action, with that action's return value; see the convention on \ref actuator.
    */
   template <typename... Args>
   void operator()(Args&&... args) {
     results.clear();
+
+    // Copied up front, before any action can move the callback out of the argument pack.
+    auto last = last_arg(args...);
 
     // Dead bindings are collected here and dropped after the loop.
     // The actuator does not own the actions it points at, so it must never
@@ -156,12 +187,8 @@ struct actuator final {
         if constexpr (std::is_same_v<typename action_t::result_type, void>) {
           (*action)(std::forward<Args>(args)...);
         } else {
-          // invoke callback
-          auto last = last_arg(args...);
           results.push_back((*action)(std::forward<Args>(args)...));
-          if constexpr (std::is_same_v<decltype(last), std::function<void(typename result_t::type)>>) {
-            last(results.back());
-          }
+          invoke_callback(last);
         }
       } catch (const invalid_action& ia) {
         std::cout << ia.what() << std::endl;
@@ -178,11 +205,15 @@ struct actuator final {
    * @brief Invokes one single action associated with a key.
    *
    * @param name - Key associated with the action.
-   * @param args - Arguments list must match the action arity.
+   * @param args - Arguments list must match the action arity. A trailing callback is invoked
+   * with the action's return value; see the convention on \ref actuator.
    */
   template <typename... Args>
   void invoke_action(const std::string& name, Args&&... args) {
     results.clear();
+
+    // Copied up front, before the action can move the callback out of the argument pack.
+    auto last = last_arg(args...);
     const auto& it = actions_map.find(name);
     if (it != actions_map.end()) {
       try {
@@ -190,6 +221,7 @@ struct actuator final {
           (*it->second)(std::forward<Args>(args)...);
         } else {
           results.push_back((*it->second)(std::forward<Args>(args)...));
+          invoke_callback(last);
         }
       } catch (const invalid_action& ia) {
         std::cout << ia.what() << std::endl;

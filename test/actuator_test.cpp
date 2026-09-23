@@ -802,4 +802,42 @@ TEST(test_actuator, test_action_callback_passed_as_rvalue) {
   ASSERT_EQ(result, 10);
 }
 
+TEST(test_actuator, test_named_action_has_callback) {
+  // The callback convention applies to invoke_action() exactly as it does to operator()().
+  int result = 0;
+  std::function<int(int, std::function<void(int)>)> action = [](int v, std::function<void(int)>) {
+    return v;
+  };
+
+  auto actuator = untangle::connect(std::make_pair(std::string("echo"), &action));
+  std::function<void(int)> cbk = [&result](int v) {
+    result = v;
+  };
+  actuator.invoke_action("echo", 21, cbk);
+
+  ASSERT_EQ(actuator.results.size(), 1);
+  ASSERT_EQ(result, 21);
+}
+
+TEST(test_actuator, test_callback_invoked_for_each_action) {
+  // The callback is copied once, ahead of the action loop, so every action must still reach
+  // it -- each with its own return value.
+  std::vector<int> seen;
+  std::function<int(int, std::function<void(int)>)> first = [](int v, std::function<void(int)>) {
+    return v;
+  };
+  std::function<int(int, std::function<void(int)>)> second = [](int v, std::function<void(int)>) {
+    return v * 2;
+  };
+
+  auto actuator = untangle::connect(first, second);
+  std::function<void(int)> cbk = [&seen](int v) {
+    seen.push_back(v);
+  };
+  actuator(10, cbk);
+
+  ASSERT_EQ(actuator.results.size(), 2);
+  ASSERT_THAT(seen, ::testing::ElementsAre(10, 20));
+}
+
 }  // namespace untangle::test
