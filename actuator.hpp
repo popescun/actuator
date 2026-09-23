@@ -97,6 +97,13 @@ auto last_arg(Args&&... args) {
  * @remark \ref invoke_action() invokes one single action, so nothing follows it and the
  * convention does not constrain it.
  *
+ * @remark Ownership convention: an actuator normally does not own its actions. It stores
+ * pointers to std::function objects the caller keeps alive, and those have to outlive it.
+ * \ref add(action_t&&) is the exception -- it moves the action into actuator::owned and
+ * points at the stored copy -- which is what lets an anonymous lambda be an action, with no
+ * named variable to keep around. The handle it returns is the only way to \ref remove()
+ * such an action afterwards.
+ *
  * @tparam action_t Action type. It is specified as std::function<...>.
  */
 template <typename action_t>
@@ -124,8 +131,22 @@ struct actuator final {
   actions_map_t actions_map;  //!< Named actions map.
   results_t results;          //!< Actions return values list.
 
+  /**
+   * @brief Actions this actuator owns, as added by \ref add(action_t&&).
+   *
+   * @remark It is a std::list because inserting into one never invalidates the address of an
+   * element already in it, so every handle already handed out stays valid as further actions
+   * are added. A std::vector would reallocate and dangle all of them at once.
+   */
+  std::list<action_t> owned;
+
   actuator() = default;
-  actuator(const actuator&) = default;
+  /**
+   * @brief Copy constructor.
+   *
+   * @remark It can not be defaulted, see \ref copy_from().
+   */
+  actuator(const actuator& other) { copy_from(other); }
   actuator(actuator&&) noexcept = default;
   ~actuator() = default;
   /**
@@ -134,7 +155,12 @@ struct actuator final {
    * Example:
    * \snippet actuator_test.cpp test_assignment
    */
-  actuator& operator=(const actuator& other) = default;
+  actuator& operator=(const actuator& other) {
+    if (this != &other) {
+      copy_from(other);
+    }
+    return *this;
+  }
   actuator& operator=(actuator&&) noexcept = default;
 
   /**
@@ -149,12 +175,83 @@ struct actuator final {
   /**
    * @brief Remove all actions and any stored results.
    *
-   * After this call the actuator is empty: actuator::is_connected() returns false.
+   * After this call the actuator is empty: actuator::is_connected() returns false. The
+   * actions it owns are destroyed, so every handle returned by \ref add(action_t&&) is
+   * dangling afterwards; the actions it merely points at are left untouched.
    */
   void reset() {
     actions.clear();
     actions_map.clear();
     results.clear();
+    owned.clear();
+  }
+
+  /**
+   * @brief Copy another actuator, re-pointing the copied actions at this object's storage.
+   *
+   * @remark A defaulted copy is wrong as soon as an actuator owns anything: it duplicates
+   * actuator::owned but leaves actuator::actions pointing into *other*'s copy of it, so the
+   * new object dangles the moment other is destroyed. The owned actions are copied first,
+   * then each pointer into other::owned is translated to the matching element here.
+   *
+   * @remark A pointer to an action the caller owns is external to both actuators and is
+   * copied unchanged: it is not in either actuator::owned, so it is not in the translation
+   * table and is left as it is.
+   *
+   * @param other - The actuator to copy. Self copy is the caller's to exclude.
+   */
+  void copy_from(const actuator& other) {
+    owned = other.owned;
+
+    // Old address -> new address, for the owned actions only.
+    std::map<const action_t*, action_t*> remap;
+    auto src = other.owned.begin();
+    auto dst = owned.begin();
+    for (; src != other.owned.end(); ++src, ++dst) {
+      remap.emplace(&*src, &*dst);
+    }
+    const auto translate = [&remap](action_t* action) {
+      const auto it = remap.find(action);
+      return it != remap.end() ? it->second : action;
+    };
+
+    actions.clear();
+    for (const auto& action : other.actions) {
+      actions.push_back(translate(action));
+    }
+    actions_map.clear();
+    for (const auto& entry : other.actions_map) {
+      actions_map.emplace(entry.first, translate(entry.second));
+    }
+    results = other.results;
+  }
+
+  /**
+   * @brief Destroy an owned action that nothing points at any more.
+   *
+   * @remark Removing an action only drops a pointer to it. When the actuator owns that
+   * action the std::function itself lives in actuator::owned and has to go too, or a loop of
+   * \ref add(action_t&&) and \ref remove() grows actuator::owned without bound.
+   *
+   * @remark The action is kept while anything still refers to it: one handle can be added to
+   * both the list and the map, and removing it from one must not leave the other pointing at
+   * a destroyed object. An action the actuator does not own is not in actuator::owned, so
+   * nothing is found to erase and the caller's object is left alone.
+   *
+   * @param action - The action just removed. A null pointer is accepted and matches nothing.
+   */
+  void release_owned(const action_t* action) {
+    for (const auto& a : actions) {
+      if (a == action) {
+        return;
+      }
+    }
+    for (const auto& entry : actions_map) {
+      if (entry.second == action) {
+        return;
+      }
+    }
+    owned.remove_if([action](const action_t& a) { return &a == action; });
   }
 
   /**
@@ -267,13 +364,20 @@ struct actuator final {
 
     for (const auto& dead_action : dead_actions) {
       actions.remove(dead_action);
+      release_owned(dead_action);
     }
   }
 
   /**
    * @brief Invokes one single action associated with a key.
    *
-   * @param name - Key associated with the action.
+   * An action that can not be invoked -- a null pointer, an empty std::function, a binding
+   * whose object is gone -- is dropped from actuator::actions_map instead, exactly as
+   * \ref operator()() drops one from actuator::actions. Nothing is invoked and nothing
+   * escapes; actuator::has_action() reports it gone afterwards.
+   *
+   * @param name - Key associated with the action. Invoking a key that is not in the map does
+   * nothing.
    * @param args - Arguments list must match the action arity. A trailing callback is invoked
    * with the action's return value; see the convention on \ref actuator.
    */
@@ -283,19 +387,34 @@ struct actuator final {
 
     // Copied up front, before the action can move the callback out of the argument pack.
     auto last = last_arg(args...);
-    const auto& it = actions_map.find(name);
-    if (it != actions_map.end()) {
-      try {
-        if constexpr (std::is_same_v<typename action_t::result_type, void>) {
-          (*it->second)(std::forward<Args>(args)...);
-        } else {
-          results.push_back((*it->second)(std::forward<Args>(args)...));
-          invoke_callback(last);
-        }
-      } catch (const invalid_action& ia) {
-        std::cout << ia.what() << std::endl;
-        actions_map.erase(name);
+    const auto it = actions_map.find(name);
+    if (it == actions_map.end()) {
+      return;
+    }
+
+    // A null pointer or an empty std::function can never be invoked, and dereferencing a
+    // null one to try is undefined behaviour before a call is even made. Calling an empty
+    // one throws std::bad_function_call, which is not an invalid_action and would escape
+    // this method. Drop it instead, as operator()() does for the actions list.
+    if (it->second == nullptr || !*it->second) {
+      const action_t* dead_action = it->second;
+      actions_map.erase(it);
+      release_owned(dead_action);
+      return;
+    }
+
+    try {
+      if constexpr (std::is_same_v<typename action_t::result_type, void>) {
+        (*it->second)(std::forward<Args>(args)...);
+      } else {
+        results.push_back((*it->second)(std::forward<Args>(args)...));
+        invoke_callback(last);
       }
+    } catch (const invalid_action& ia) {
+      std::cout << ia.what() << std::endl;
+      const action_t* dead_action = it->second;
+      actions_map.erase(name);
+      release_owned(dead_action);
     }
   }
 
@@ -310,6 +429,27 @@ struct actuator final {
   void add(action_t* action) { actions.push_back(action); }
 
   /**
+   * @brief Add an action the actuator owns.
+   *
+   * The action is moved into actuator::owned, so it needs no named variable outliving the
+   * actuator: an anonymous lambda can be passed straight in, and the call converts it to
+   * action_t. See the ownership convention on \ref actuator.
+   *
+   * @param action - Action to be added. It is taken by value and moved from.
+   * @return action_t* - A handle to the stored action, to pass to \ref remove(). It stays
+   * valid until that action is removed or the actuator is destroyed. A copy of the actuator
+   * owns its own copy of the action and has its own handle to it.
+   *
+   * Example:
+   * \snippet actuator_test.cpp test_add_anonymous_lambda
+   */
+  action_t* add(action_t&& action) {
+    owned.push_back(std::move(action));
+    actions.push_back(&owned.back());
+    return &owned.back();
+  }
+
+  /**
    * @brief Add action to the actions map associated with a name.
    *
    * @param name - Name of the action.
@@ -318,25 +458,61 @@ struct actuator final {
   void add(const std::string& name, action_t* action) { actions_map.emplace(name, action); }
 
   /**
+   * @brief Add an action the actuator owns, associated with a name.
+   *
+   * @param name - Name of the action.
+   * @param action - Action to be added. It is taken by value and moved from.
+   * @return action_t* - A handle to the stored action, as \ref add(action_t&&) returns, or
+   * nullptr when name is already taken. The name already in the map keeps the action it has,
+   * as it does for \ref add(const std::string&, action_t*), and the action offered here is
+   * dropped rather than left ownerless in actuator::owned.
+   */
+  action_t* add(const std::string& name, action_t&& action) {
+    owned.push_back(std::move(action));
+    const auto [it, inserted] = actions_map.emplace(name, &owned.back());
+    if (!inserted) {
+      owned.pop_back();
+      return nullptr;
+    }
+    return &owned.back();
+  }
+
+  /**
    * @brief Remove an action from the actions list.
    *
    * An invalid action (empty std::function) is implicitly removed when operator()() is invoked.
    *
-   * @param action - Action to be removed.
+   * An action the actuator owns is destroyed by this call, so the handle to it is dangling
+   * afterwards. See \ref release_owned().
+   *
+   * @param action - Action to be removed. For an owned action this is the handle returned by
+   * \ref add(action_t&&).
    *
    * Example:
    * \snippet actuator_test.cpp test_remove
    */
   void remove(const action_t* action) {
     actions.remove_if([&action](const auto& a) { return (action == a); });
+    release_owned(action);
   }
 
   /**
    * @brief Remove an action from actions map.
    *
+   * An action the actuator owns is destroyed by this call, so the handle to it is dangling
+   * afterwards. See \ref release_owned().
+   *
    * @param name -  Name of the action to remove.
    */
-  void remove(const std::string& name) { actions_map.erase(name); }
+  void remove(const std::string& name) {
+    const auto it = actions_map.find(name);
+    if (it == actions_map.end()) {
+      return;
+    }
+    const action_t* action = it->second;
+    actions_map.erase(it);
+    release_owned(action);
+  }
 
   /**
    * @brief Check if this actuator is "connected" with other actions.
@@ -359,10 +535,69 @@ struct actuator final {
 };
 
 /**
+ * @brief Add one \ref connect() argument to the actuator being built.
+ *
+ * An argument that is an lvalue of the action type is one the caller owns: only its address
+ * is stored, and it has to outlive the actuator. Anything else -- an anonymous lambda, a
+ * temporary std::function, a named lambda that is not an action_t yet -- has no owner to
+ * outlive the actuator, so it is converted to an action and moved into it.
+ *
+ * @remark Empty actions are dropped rather than stored, which is what \ref connect() has
+ * always done with them. Dropping an empty owned action before it is stored is what keeps
+ * actuator::owned free of entries nothing points at.
+ *
+ * @tparam action_t Action type of the actuator being built.
+ * @tparam arg_t Deduced type of the argument, carrying its value category.
+ * @param target - The actuator being built.
+ * @param arg - One \ref connect() argument.
+ */
+template <typename action_t, typename arg_t>
+void connect_one(actuator<action_t>& target, arg_t&& arg) {
+  if constexpr (std::is_lvalue_reference_v<arg_t&&> &&
+                std::is_same_v<std::decay_t<arg_t>, action_t>) {
+    if (arg != nullptr) {
+      target.add(&arg);
+    }
+  } else {
+    action_t action(std::forward<arg_t>(arg));
+    if (action != nullptr) {
+      target.add(std::move(action));
+    }
+  }
+}
+
+/**
  * @brief Creates an actuator holding an initial list of actions.
  *
+ * @remark Ownership: an action passed as an lvalue is one the caller owns, and the actuator
+ * only points at it -- it must outlive the actuator. An action passed as an rvalue, an
+ * anonymous lambda above all, is moved into the actuator instead and needs no named variable
+ * at all. The two can be mixed in one call. See the ownership convention on \ref actuator.
+ *
+ * @warning A call made *only* of anonymous lambdas can not deduce action_t. A lambda has its
+ * own closure type and is not a std::function until something converts it, so there is
+ * nothing in such a call to deduce the action signature from, and it has to be named:
+ *
+ * @code
+ * auto actuator_rotate = untangle::connect<std::function<void(int)>>(
+ *     [](int angle) { ... }, [](int angle) { ... });
+ * @endcode
+ *
+ * @warning Naming the type of the variable the result is assigned to does *not* supply it:
+ *
+ * @code
+ * // still ill formed -- "no matching function for call to connect"
+ * untangle::actuator<std::function<void(int)>> actuator_rotate =
+ *     untangle::connect([](int angle) { ... });
+ * @endcode
+ *
+ * Template arguments are deduced from the call arguments alone, never from what the returned
+ * value is assigned to, so the explicit argument belongs on connect() itself. One named
+ * action anywhere in the call deduces action_t for the whole of it, and the anonymous
+ * lambdas beside it then need nothing.
+ *
  * @param A1 - The first action. It is specified as std::function<...>.
- * @param An - Any number of further actions, of the same type as A1.
+ * @param An - Any number of further actions, each convertible to the type of A1.
  *
  * @return An \ref actuator.
  *
@@ -371,16 +606,38 @@ struct actuator final {
  * Example:
  * \snippet actuator_test.cpp test_polymorphism1
  * \snippet actuator_test.cpp test_polymorphism2
+ * \snippet actuator_test.cpp test_connect_anonymous_lambda
  */
 template <typename action_t, typename... Actions>
-actuator<action_t> connect(action_t& A1, Actions&... An) {
-  using actuator_t = untangle::actuator<action_t>;
-  actuator_t actuator;
-  actuator.actions = {&A1, &An...};
+actuator<action_t> connect(action_t& A1, Actions&&... An) {
+  actuator<action_t> target;
+  connect_one(target, A1);
+  (connect_one(target, std::forward<Actions>(An)), ...);
+  return target;
+}
 
-  // remove empty actions
-  actuator.actions.remove_if([](const auto& action) { return (*action == nullptr); });
-  return actuator;
+/**
+ * @brief Creates an actuator owning an initial list of actions.
+ *
+ * This overload takes the first action by rvalue, so it is the one that accepts a leading
+ * anonymous lambda. std::type_identity_t makes action_t a non-deduced context here, which is
+ * what both keeps this overload out of the way of the lvalue one -- it is not a candidate at
+ * all unless action_t is named -- and states the requirement described by the warning on the
+ * overload taking the first action by lvalue.
+ *
+ * @param A1 - The first action, as an rvalue.
+ * @param An - Any number of further actions, owned or pointed at by value category.
+ *
+ * @return An \ref actuator.
+ *
+ * @ingroup untangle_functions
+ */
+template <typename action_t, typename... Actions>
+actuator<action_t> connect(std::type_identity_t<action_t>&& A1, Actions&&... An) {
+  actuator<action_t> target;
+  connect_one(target, std::move(A1));
+  (connect_one(target, std::forward<Actions>(An)), ...);
+  return target;
 }
 
 template <typename actuator_t>
@@ -396,15 +653,102 @@ void remove_empty_actions(actuator_t& actuator) {
   }
 }
 
-template <typename key_t, typename action_t, typename... Actions>
-actuator<action_t> connect(std::pair<key_t, action_t*> A1, Actions... An) {
-  using actuator_t = untangle::actuator<action_t>;
-  actuator_t actuator;
-  actuator.actions_map = {A1, An...};
+/**
+ * @brief Add one named \ref connect() argument to the actuator being built.
+ *
+ * It is \ref connect_one() for the named overloads: the second element of the pair decides
+ * ownership. A pointer to an action is one the caller owns and is only stored; anything else
+ * -- an anonymous lambda, a temporary std::function -- is converted to an action and moved
+ * into the actuator.
+ *
+ * @remark A null pointer is dropped rather than stored, which is what the named \ref
+ * connect() has always done with one. An owned action that is empty is dropped for the same
+ * reason the unnamed \ref connect_one() drops one: nothing would ever point at it.
+ *
+ * @tparam action_t Action type of the actuator being built.
+ * @tparam entry_t Deduced type of the pair, carrying its value category.
+ * @param target - The actuator being built.
+ * @param entry - One name/action pair.
+ */
+template <typename action_t, typename entry_t>
+void connect_named_one(actuator<action_t>& target, entry_t&& entry) {
+  if constexpr (std::is_same_v<std::remove_cvref_t<decltype(entry.second)>, action_t*>) {
+    if (entry.second != nullptr) {
+      target.add(entry.first, entry.second);
+    }
+  } else {
+    action_t action(std::forward<entry_t>(entry).second);
+    if (action != nullptr) {
+      target.add(entry.first, std::move(action));
+    }
+  }
+}
 
-  // remove empty actions
-  remove_empty_actions(actuator);
-  return actuator;
+/**
+ * @brief Creates an actuator holding an initial map of named actions.
+ *
+ * @remark Ownership works as it does for the unnamed connect() overloads: a pair holding a
+ * *pointer* names an action the caller owns, and a pair holding an action *by value* -- an
+ * anonymous lambda above all -- hands it to the actuator to own. The two can be mixed in one
+ * call.
+ *
+ * @warning The action type is deduced from the pointer in the first pair, so a call whose
+ * first pair holds an anonymous lambda has nothing to deduce it from and has to name the
+ * signature on connect() itself, exactly as the unnamed overload does:
+ *
+ * @code
+ * auto actuator_rotate = untangle::connect<std::function<void(int)>>(
+ *     std::make_pair("triangle", [](int angle) { ... }),
+ *     std::make_pair("circle", [](int angle) { ... }));
+ * @endcode
+ *
+ * @remark action_t leads the template parameter list, ahead of key_t, so that naming it --
+ * `connect<std::function<...>>(...)` -- means the same thing on every connect() overload.
+ * Both parameters are deduced from the first pair whenever it holds a pointer, so nothing
+ * has to be named here in the first place.
+ *
+ * @param A1 - The first name/action pair. Its second element is a pointer to an action.
+ * @param An - Any number of further name/action pairs, owned or pointed at according to
+ * whether they hold the action itself or a pointer to it.
+ *
+ * @return An \ref actuator.
+ *
+ * @ingroup untangle_functions
+ *
+ * Example:
+ * \snippet actuator_test.cpp test_connect_named_anonymous_lambda
+ */
+template <typename action_t, typename key_t, typename... Actions>
+actuator<action_t> connect(std::pair<key_t, action_t*> A1, Actions&&... An) {
+  actuator<action_t> target;
+  connect_named_one(target, std::move(A1));
+  (connect_named_one(target, std::forward<Actions>(An)), ...);
+  return target;
+}
+
+/**
+ * @brief Creates an actuator owning an initial map of named actions.
+ *
+ * This overload takes a first pair holding the action itself rather than a pointer to it, so
+ * it is the one that accepts a leading anonymous lambda. action_t is never deduced here --
+ * the requires clause is what keeps it from competing with the overload taking a pointer in
+ * the first pair over a leading pointer pair, which both would otherwise accept once action_t
+ * is named.
+ *
+ * @param A1 - The first name/action pair, holding the action itself.
+ * @param An - Any number of further name/action pairs.
+ *
+ * @return An \ref actuator.
+ *
+ * @ingroup untangle_functions
+ */
+template <typename action_t, typename key_t, typename value_t, typename... Actions>
+  requires(!std::is_same_v<value_t, action_t*>)
+actuator<action_t> connect(std::pair<key_t, value_t> A1, Actions&&... An) {
+  actuator<action_t> target;
+  connect_named_one(target, std::move(A1));
+  (connect_named_one(target, std::forward<Actions>(An)), ...);
+  return target;
 }
 
 // generic helpers to remove const qualifier from a function type,

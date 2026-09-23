@@ -913,4 +913,300 @@ TEST(test_actuator, test_every_action_receives_a_usable_callback) {
   ASSERT_EQ(usable_callbacks, 2) << "every action must be handed a callback it can call";
 }
 
+TEST(test_actuator, test_add_anonymous_lambda) {
+  //! [test_add_anonymous_lambda]
+  // An anonymous lambda has no named variable to outlive the actuator, so the actuator takes
+  // ownership of it: it is moved into actuator::owned and the list points at the stored copy.
+  untangle::actuator<std::function<int(int)>> actuator_scale;
+  actuator_scale.add([](int v) { return v * 2; });
+  actuator_scale.add([](int v) { return v * 3; });
+
+  actuator_scale(10);
+  ASSERT_THAT(actuator_scale.results, ::testing::ElementsAre(20, 30));
+  //! [test_add_anonymous_lambda]
+  ASSERT_EQ(actuator_scale.owned.size(), 2);
+}
+
+TEST(test_actuator, test_add_anonymous_lambda_mixed_with_owned_action) {
+  // Ownership is per action, not per actuator: an action the caller owns is still only
+  // pointed at, and lives alongside the ones the actuator owns.
+  std::function<int(int)> external = [](int v) { return v - 1; };
+
+  untangle::actuator<std::function<int(int)>> actuator_scale;
+  actuator_scale.add(&external);
+  actuator_scale.add([](int v) { return v * 2; });
+
+  actuator_scale(10);
+  ASSERT_THAT(actuator_scale.results, ::testing::ElementsAre(9, 20));
+  ASSERT_EQ(actuator_scale.actions.size(), 2);
+  ASSERT_EQ(actuator_scale.owned.size(), 1) << "only the anonymous lambda is owned";
+}
+
+TEST(test_actuator, test_add_named_anonymous_lambda) {
+  untangle::actuator<std::function<int(int)>> actuator_scale;
+  ASSERT_NE(actuator_scale.add("double", [](int v) { return v * 2; }), nullptr);
+  ASSERT_TRUE(actuator_scale.has_action("double"));
+
+  actuator_scale.invoke_action("double", 10);
+  ASSERT_THAT(actuator_scale.results, ::testing::ElementsAre(20));
+}
+
+TEST(test_actuator, test_add_named_anonymous_lambda_rejects_a_taken_name) {
+  // A taken name keeps the action it already has, as it does for the pointer overload. The
+  // action offered here must not be left in actuator::owned with nothing pointing at it.
+  untangle::actuator<std::function<int(int)>> actuator_scale;
+  actuator_scale.add("scale", [](int v) { return v * 2; });
+  ASSERT_EQ(actuator_scale.add("scale", [](int v) { return v * 3; }), nullptr);
+
+  actuator_scale.invoke_action("scale", 10);
+  ASSERT_THAT(actuator_scale.results, ::testing::ElementsAre(20)) << "the first action is kept";
+  ASSERT_EQ(actuator_scale.owned.size(), 1) << "the rejected action must not be stored";
+}
+
+TEST(test_actuator, test_owned_action_survives_the_source_of_a_copy) {
+  // A defaulted copy would duplicate actuator::owned but leave the copied pointers aimed at
+  // the source's storage, so the copy would dangle the moment the source lets go of it.
+  untangle::actuator<std::function<int(int)>> actuator_scale;
+  actuator_scale.add([](int v) { return v * 2; });
+  actuator_scale.add("triple", [](int v) { return v * 3; });
+
+  auto actuator_copy = actuator_scale;
+  actuator_scale.reset();  // destroys the actions the copy was made from
+
+  actuator_copy(10);
+  ASSERT_THAT(actuator_copy.results, ::testing::ElementsAre(20));
+  actuator_copy.invoke_action("triple", 10);
+  ASSERT_THAT(actuator_copy.results, ::testing::ElementsAre(30));
+}
+
+TEST(test_actuator, test_copy_does_not_re_point_an_action_it_does_not_own) {
+  // The translation table holds the owned actions only, so a pointer to the caller's action
+  // is copied unchanged and both actuators keep pointing at the one object.
+  std::function<int(int)> external = [](int v) { return v - 1; };
+
+  untangle::actuator<std::function<int(int)>> actuator_scale;
+  actuator_scale.add(&external);
+
+  const auto actuator_copy = actuator_scale;
+  ASSERT_EQ(actuator_copy.actions.front(), &external);
+  ASSERT_TRUE(actuator_copy.owned.empty());
+}
+
+TEST(test_actuator, test_remove_releases_the_storage_of_an_owned_action) {
+  // Removing drops a pointer; for an owned action the std::function behind it has to go too,
+  // or a loop of add() and remove() grows actuator::owned without bound.
+  untangle::actuator<std::function<int(int)>> actuator_scale;
+  for (int i = 0; i < 4; ++i) {
+    auto* handle = actuator_scale.add([](int v) { return v; });
+    actuator_scale.remove(handle);
+  }
+  ASSERT_TRUE(actuator_scale.actions.empty());
+  ASSERT_TRUE(actuator_scale.owned.empty());
+
+  actuator_scale.add("named", [](int v) { return v; });
+  actuator_scale.remove("named");
+  ASSERT_TRUE(actuator_scale.actions_map.empty());
+  ASSERT_TRUE(actuator_scale.owned.empty());
+}
+
+TEST(test_actuator, test_remove_keeps_an_owned_action_something_still_points_at) {
+  // One handle can be added to both the list and the map. Removing it from one must not
+  // destroy it while the other is still pointing at it.
+  untangle::actuator<std::function<int(int)>> actuator_scale;
+  auto* handle = actuator_scale.add([](int v) { return v * 2; });
+  actuator_scale.add("double", handle);
+  ASSERT_EQ(actuator_scale.owned.size(), 1);
+
+  actuator_scale.remove(handle);
+  ASSERT_TRUE(actuator_scale.actions.empty());
+  ASSERT_EQ(actuator_scale.owned.size(), 1) << "the map still points at it";
+
+  actuator_scale.invoke_action("double", 10);
+  ASSERT_THAT(actuator_scale.results, ::testing::ElementsAre(20));
+
+  actuator_scale.remove("double");
+  ASSERT_TRUE(actuator_scale.owned.empty());
+}
+
+TEST(test_actuator, test_dead_owned_binding_releases_its_storage) {
+  // An owned action can be a binding too, and a binding to a destroyed object is dropped by
+  // operator() as any other. The storage behind it must be released with it.
+  auto t = std::make_shared<triangle_mock>();
+
+  untangle::actuator<std::function<void(int)>> actuator_rotate;
+  actuator_rotate.add(untangle::bind(t, &triangle_mock::rotate));
+  ASSERT_EQ(actuator_rotate.owned.size(), 1);
+
+  t.reset();
+  actuator_rotate(20);
+  ASSERT_TRUE(actuator_rotate.actions.empty());
+  ASSERT_TRUE(actuator_rotate.owned.empty());
+}
+
+TEST(test_actuator, test_connect_anonymous_lambda) {
+  //! [test_connect_anonymous_lambda]
+  // connect() deduces the action type from its arguments. A lambda has its own closure type
+  // and is not a std::function until something converts it, so a call made only of anonymous
+  // lambdas has nothing to deduce from and the signature has to be named on connect()
+  // itself. Naming the type of the variable assigned to would not supply it: template
+  // arguments are never deduced from what the returned value is assigned to.
+  auto actuator_scale = untangle::connect<std::function<int(int)>>([](int v) { return v * 2; },
+                                                                   [](int v) { return v * 3; });
+
+  actuator_scale(10);
+  ASSERT_THAT(actuator_scale.results, ::testing::ElementsAre(20, 30));
+  //! [test_connect_anonymous_lambda]
+  ASSERT_EQ(actuator_scale.owned.size(), 2) << "connect() owns what it was given as rvalues";
+}
+
+TEST(test_actuator, test_connect_deduces_from_one_named_action) {
+  // One named action anywhere in the call deduces the action type for the whole of it, and
+  // the anonymous lambdas beside it then need no explicit signature.
+  std::function<int(int)> external = [](int v) { return v - 1; };
+
+  auto actuator_scale = untangle::connect(external, [](int v) { return v * 2; });
+
+  actuator_scale(10);
+  ASSERT_THAT(actuator_scale.results, ::testing::ElementsAre(9, 20));
+  ASSERT_EQ(actuator_scale.actions.front(), &external) << "the named action is only pointed at";
+  ASSERT_EQ(actuator_scale.owned.size(), 1) << "the lambda beside it is owned";
+}
+
+TEST(test_actuator, test_connect_owned_actions_survive_the_call) {
+  // connect() builds the actuator locally and returns it. The actions it owns live in a
+  // std::list, whose elements keep their addresses when the list is moved out, so the
+  // pointers built inside connect() are still the right ones here.
+  const auto actuator_scale =
+      untangle::connect<std::function<int(int)>>([](int v) { return v * 2; });
+
+  auto actuator_copy = actuator_scale;
+  actuator_copy(10);
+  ASSERT_THAT(actuator_copy.results, ::testing::ElementsAre(20));
+}
+
+TEST(test_actuator, test_connect_drops_an_empty_owned_action) {
+  // An empty action is dropped rather than stored, as connect() has always done, and an
+  // empty owned one must not be left in actuator::owned with nothing pointing at it.
+  auto actuator_scale = untangle::connect<std::function<int(int)>>(std::function<int(int)>(),
+                                                                   [](int v) { return v * 2; });
+
+  ASSERT_EQ(actuator_scale.actions.size(), 1);
+  ASSERT_EQ(actuator_scale.owned.size(), 1);
+
+  actuator_scale(10);
+  ASSERT_THAT(actuator_scale.results, ::testing::ElementsAre(20));
+}
+
+TEST(test_actuator, test_connect_named_anonymous_lambda) {
+  //! [test_connect_named_anonymous_lambda]
+  // A pair holding the action itself hands it to the actuator to own. The action type is
+  // deduced from a pointer, and there is no pointer here, so the signature has to be named
+  // on connect() -- as it does for the unnamed overload.
+  auto actuator_scale = untangle::connect<std::function<int(int)>>(
+      std::make_pair("double", [](int v) { return v * 2; }),
+      std::make_pair("triple", [](int v) { return v * 3; }));
+
+  actuator_scale.invoke_action("double", 10);
+  ASSERT_THAT(actuator_scale.results, ::testing::ElementsAre(20));
+  actuator_scale.invoke_action("triple", 10);
+  ASSERT_THAT(actuator_scale.results, ::testing::ElementsAre(30));
+  //! [test_connect_named_anonymous_lambda]
+  ASSERT_EQ(actuator_scale.owned.size(), 2);
+}
+
+TEST(test_actuator, test_connect_named_mixes_owned_and_pointed_at_actions) {
+  // A leading pointer pair deduces the action type for the whole call, and the pairs beside
+  // it can then hold anonymous lambdas without naming it.
+  std::function<int(int)> external = [](int v) { return v - 1; };
+
+  auto actuator_scale =
+      untangle::connect(std::make_pair(std::string("external"), &external),
+                        std::make_pair(std::string("double"), [](int v) { return v * 2; }));
+
+  ASSERT_TRUE(actuator_scale.has_action("external"));
+  ASSERT_TRUE(actuator_scale.has_action("double"));
+  ASSERT_EQ(actuator_scale.actions_map.at("external"), &external) << "only pointed at";
+  ASSERT_EQ(actuator_scale.owned.size(), 1) << "the lambda beside it is owned";
+
+  actuator_scale.invoke_action("double", 10);
+  ASSERT_THAT(actuator_scale.results, ::testing::ElementsAre(20));
+}
+
+TEST(test_actuator, test_connect_named_owned_action_survives_the_source_of_a_copy) {
+  const auto actuator_scale = untangle::connect<std::function<int(int)>>(
+      std::make_pair("double", [](int v) { return v * 2; }));
+
+  auto actuator_copy = actuator_scale;
+  actuator_copy.invoke_action("double", 10);
+  ASSERT_THAT(actuator_copy.results, ::testing::ElementsAre(20));
+}
+
+TEST(test_actuator, test_connect_named_drops_an_empty_owned_action) {
+  auto actuator_scale = untangle::connect<std::function<int(int)>>(
+      std::make_pair("empty", std::function<int(int)>()),
+      std::make_pair("double", [](int v) { return v * 2; }));
+
+  ASSERT_FALSE(actuator_scale.has_action("empty"));
+  ASSERT_EQ(actuator_scale.owned.size(), 1);
+}
+
+TEST(test_actuator, test_connect_named_drops_a_null_pointer) {
+  // Unchanged behaviour of the pointer overload: a null pointer is not stored.
+  std::function<int(int)> external = [](int v) { return v - 1; };
+
+  const auto actuator_scale = untangle::connect(
+      std::make_pair(std::string("null"), static_cast<decltype(external)*>(nullptr)),
+      std::make_pair(std::string("external"), &external));
+
+  ASSERT_FALSE(actuator_scale.has_action("null"));
+  ASSERT_TRUE(actuator_scale.has_action("external"));
+}
+
+TEST(test_actuator, test_invoke_action_drops_an_empty_action) {
+  // An empty std::function throws std::bad_function_call when called, which is not an
+  // invalid_action and would escape invoke_action(). It is dropped instead, as operator()()
+  // drops an empty action from the list.
+  std::function<int(int)> empty_action;
+
+  untangle::actuator<std::function<int(int)>> actuator_scale;
+  actuator_scale.add("empty", &empty_action);
+  ASSERT_TRUE(actuator_scale.has_action("empty"));
+
+  ASSERT_NO_THROW(actuator_scale.invoke_action("empty", 10));
+  ASSERT_FALSE(actuator_scale.has_action("empty"));
+  ASSERT_TRUE(actuator_scale.results.empty());
+}
+
+TEST(test_actuator, test_invoke_action_drops_a_null_action) {
+  // Dereferencing the null pointer to call through it is undefined behaviour before a call
+  // is even made, so the pointer is tested rather than the action behind it.
+  untangle::actuator<std::function<int(int)>> actuator_scale;
+  actuator_scale.add("null", nullptr);
+  ASSERT_TRUE(actuator_scale.has_action("null"));
+
+  ASSERT_NO_THROW(actuator_scale.invoke_action("null", 10));
+  ASSERT_FALSE(actuator_scale.has_action("null"));
+}
+
+TEST(test_actuator, test_invoke_action_drops_an_empty_owned_action) {
+  // The storage behind a dropped owned action has to go with it, as it does everywhere else.
+  untangle::actuator<std::function<int(int)>> actuator_scale;
+  std::function<int(int)> empty_action;
+  actuator_scale.add("empty", std::move(empty_action));
+  ASSERT_EQ(actuator_scale.owned.size(), 1);
+
+  ASSERT_NO_THROW(actuator_scale.invoke_action("empty", 10));
+  ASSERT_FALSE(actuator_scale.has_action("empty"));
+  ASSERT_TRUE(actuator_scale.owned.empty());
+}
+
+TEST(test_actuator, test_invoke_action_ignores_an_unknown_name) {
+  untangle::actuator<std::function<int(int)>> actuator_scale;
+  actuator_scale.add("double", [](int v) { return v * 2; });
+
+  ASSERT_NO_THROW(actuator_scale.invoke_action("missing", 10));
+  ASSERT_TRUE(actuator_scale.results.empty());
+  ASSERT_TRUE(actuator_scale.has_action("double")) << "the other actions are untouched";
+}
+
 }  // namespace untangle::test
