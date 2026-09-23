@@ -758,4 +758,48 @@ TEST(test_actuator, test_bind_null_pointer_is_a_dead_action) {
   EXPECT_FALSE(actuator_rotate.is_connected());
 }
 
+TEST(test_actuator, test_action_has_callback) {
+  int result = 0;
+  std::function action = [](int v, std::function<void(int)>& cbk) {
+    return v;
+  };
+
+  auto actuator = untangle::connect(action);
+  std::function cbk =  [&result](int v) {
+    result = v;
+  };
+  actuator(1, cbk);
+
+  ASSERT_EQ(actuator.results.size(), 1);
+  ASSERT_EQ(result, 1);
+}
+
+TEST(test_actuator, test_action_callback_passed_as_rvalue) {
+  // The action takes the callback by value, so invoking the action moves from the
+  // caller's std::function. The actuator must copy the callback out of the argument
+  // pack before it invokes the action, otherwise it calls a moved-from function and
+  // std::bad_function_call escapes the call operator.
+  int result = 0;
+  // A capture too large for the std::function small-object buffer forces a
+  // heap-allocated target, which a move really does leave empty.
+  char pad[256] = {};
+  // That is a property of the standard library, not of the code under test, so verify it
+  // holds here -- otherwise the assertions below would pass without proving anything.
+  std::function moved_from = [&result, pad](int v) { result = v + pad[0]; };
+  std::function sink = std::move(moved_from);
+  ASSERT_FALSE(moved_from) << "pad is too small for this stdlib; the test below is vacuous";
+  std::function action = [](int v, std::function<void(int)>) {
+    return v;
+  };
+
+  auto actuator = untangle::connect(action);
+  std::function cbk = [&result, pad](int v) {
+    result = v + pad[0];
+  };
+  actuator(10, std::move(cbk));
+
+  ASSERT_EQ(actuator.results.size(), 1);
+  ASSERT_EQ(result, 10);
+}
+
 }  // namespace untangle::test

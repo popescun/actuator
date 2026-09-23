@@ -46,6 +46,22 @@ struct invalid_action : std::exception {
 };
 
 /**
+ * @brief Get last argument of params pack;
+ *
+ * @tparam Args params template types
+ * @param args params
+ * @return last param value in case it exist, otherwise 0.
+ */
+template<typename... Args>
+auto last_arg(Args&&... args) {
+  if constexpr (sizeof...(Args) <= 0) {
+    return 0;
+  } else {
+    return std::get<sizeof...(Args)-1>(std::forward_as_tuple(args...));
+  }
+}
+
+/**
  * @brief An actuator is a functor that can trigger a dynamic list of actions (of type
  * std::function<...>).
  *
@@ -140,7 +156,12 @@ struct actuator final {
         if constexpr (std::is_same_v<typename action_t::result_type, void>) {
           (*action)(std::forward<Args>(args)...);
         } else {
+          // invoke callback
+          auto last = last_arg(args...);
           results.push_back((*action)(std::forward<Args>(args)...));
+          if constexpr (std::is_same_v<decltype(last), std::function<void(typename result_t::type)>>) {
+            last(results.back());
+          }
         }
       } catch (const invalid_action& ia) {
         std::cout << ia.what() << std::endl;
