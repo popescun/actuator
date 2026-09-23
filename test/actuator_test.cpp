@@ -760,14 +760,10 @@ TEST(test_actuator, test_bind_null_pointer_is_a_dead_action) {
 
 TEST(test_actuator, test_action_has_callback) {
   int result = 0;
-  std::function action = [](int v, std::function<void(int)>& cbk) {
-    return v;
-  };
+  std::function action = [](int v, std::function<void(int)>& cbk) { return v; };
 
   auto actuator = untangle::connect(action);
-  std::function cbk =  [&result](int v) {
-    result = v;
-  };
+  std::function cbk = [&result](int v) { result = v; };
   actuator(1, cbk);
 
   ASSERT_EQ(actuator.results.size(), 1);
@@ -788,14 +784,10 @@ TEST(test_actuator, test_action_callback_passed_as_rvalue) {
   std::function moved_from = [&result, pad](int v) { result = v + pad[0]; };
   std::function sink = std::move(moved_from);
   ASSERT_FALSE(moved_from) << "pad is too small for this stdlib; the test below is vacuous";
-  std::function action = [](int v, std::function<void(int)>) {
-    return v;
-  };
+  std::function action = [](int v, std::function<void(int)>) { return v; };
 
   auto actuator = untangle::connect(action);
-  std::function cbk = [&result, pad](int v) {
-    result = v + pad[0];
-  };
+  std::function cbk = [&result, pad](int v) { result = v + pad[0]; };
   actuator(10, std::move(cbk));
 
   ASSERT_EQ(actuator.results.size(), 1);
@@ -810,9 +802,7 @@ TEST(test_actuator, test_named_action_has_callback) {
   };
 
   auto actuator = untangle::connect(std::make_pair(std::string("echo"), &action));
-  std::function<void(int)> cbk = [&result](int v) {
-    result = v;
-  };
+  std::function<void(int)> cbk = [&result](int v) { result = v; };
   actuator.invoke_action("echo", 21, cbk);
 
   ASSERT_EQ(actuator.results.size(), 1);
@@ -831,9 +821,7 @@ TEST(test_actuator, test_callback_invoked_for_each_action) {
   };
 
   auto actuator = untangle::connect(first, second);
-  std::function<void(int)> cbk = [&seen](int v) {
-    seen.push_back(v);
-  };
+  std::function<void(int)> cbk = [&seen](int v) { seen.push_back(v); };
   actuator(10, cbk);
 
   ASSERT_EQ(actuator.results.size(), 2);
@@ -857,9 +845,7 @@ TEST(test_actuator, test_anonymous_lambda_as_callback) {
 
 TEST(test_actuator, test_trailing_non_callable_is_not_a_callback) {
   // A trailing argument that cannot be called with the return type is an ordinary argument.
-  std::function<int(int, int)> action = [](int v, int w) {
-    return v + w;
-  };
+  std::function<int(int, int)> action = [](int v, int w) { return v + w; };
 
   auto actuator = untangle::connect(action);
   actuator(2, 3);

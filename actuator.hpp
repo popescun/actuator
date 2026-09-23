@@ -52,12 +52,12 @@ struct invalid_action : std::exception {
  * @param args params
  * @return last param value in case it exist, otherwise 0.
  */
-template<typename... Args>
+template <typename... Args>
 auto last_arg(Args&&... args) {
   if constexpr (sizeof...(Args) <= 0) {
     return 0;
   } else {
-    return std::get<sizeof...(Args)-1>(std::forward_as_tuple(args...));
+    return std::get<sizeof...(Args) - 1>(std::forward_as_tuple(args...));
   }
 }
 
