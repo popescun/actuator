@@ -67,18 +67,18 @@ auto last_arg(Args&&... args) {
  *
  *@remark An actuator object can be constructed with an initial list of actions by \ref connect().
  *
- * @remark Callback convention: when the last argument of an invocation is callable with the
- * action return type R, it is not passed on as a plain argument alone -- it is also treated
- * as a completion callback. The action is invoked with the full argument list as usual, and
- * the callback is then invoked with the action return value. Any callable qualifies: a
- * std::function<void(R)>, a lambda taking R, a function pointer. It applies to
- * \ref operator()() and to \ref invoke_action() alike. Actions returning void have no result
- * to report, so no callback is invoked for them.
+ * @remark Callback convention: when the last argument of an invocation can be called with the
+ * action return type R and returns nothing, it is not passed on as a plain argument alone --
+ * it is also treated as a completion callback. The action is invoked with the full argument
+ * list as usual, and the callback is then invoked with the action return value. Any void
+ * returning callable qualifies: a std::function<void(R)>, a lambda taking R, a function
+ * pointer. It applies to \ref operator()() and to \ref invoke_action() alike. Actions
+ * returning void have no result to report, so no callback is invoked for them.
  *
- * @warning The convention keys on the argument being callable, so an action whose last
- * parameter is a callable it means to consume as data -- a comparator, a factory -- gets it
- * invoked as a callback too, as long as it accepts R. Such an action should not take that
- * parameter last.
+ * @warning The return type is what separates a callback from an argument the action means to
+ * consume itself. A trailing callable that returns a value -- a transform, a comparator --
+ * is left alone, and by the same rule a callback written to return something is silently
+ * not invoked. A callback returns nothing.
  *
  * @tparam action_t Action type. It is specified as std::function<...>.
  */
@@ -143,10 +143,50 @@ struct actuator final {
   /**
    * @brief Invoke the trailing callback argument, if the invocation has one.
    *
-   * Does nothing unless last_t can be called with the action return type, so any other
-   * trailing argument is left alone. The test is on what the type can do, not on what it is,
-   * so a plain lambda qualifies as well as a std::function. See the callback convention on
-   * \ref actuator.
+   * Does nothing unless last_t can be called with the action return type and returns nothing,
+   * so any other trailing argument is left alone. The test is on what the type can do, not on
+   * what it is, so a plain lambda qualifies as well as a std::function. See the callback
+   * convention on \ref actuator.
+   *
+   * @remark The single condition does the work of two tests: (1) whether last can be called
+   * with the action return type at all, and (2) whether that call returns nothing. Spelled
+   * out as traits they need two nested `if constexpr`:
+   *
+   * @code
+   * // (1)
+   * if constexpr (std::is_invocable_v<last_t&, typename result_t::type>) {
+   *   // (2)
+   *   if constexpr (std::is_void_v<std::invoke_result_t<last_t&, typename result_t::type>>) {
+   *     last(results.back());
+   *   }
+   * }
+   * @endcode
+   *
+   * Both are folded into the one expression instead, each in a different part of it:
+   *
+   * @code
+   * requires { requires std::is_void_v<decltype( last(results.back()) )>; }
+   * //         \________ (2) ________/           \_____ (1) _____/
+   * @endcode
+   *
+   * @remark (1) Invocability comes for free. To form decltype(last(results.back())) the
+   * compiler must first form the call last(...). If last is an int, that expression does not
+   * exist -- and inside a requires-expression a substitution failure yields false instead of
+   * being ill formed, the same property concepts are built on. So invocability is never
+   * tested separately: it is a precondition of the return type question, and failing it is
+   * what makes the whole condition false.
+   *
+   * @remark (2) The return type test is the inner `requires`, and the doubled keyword is not
+   * a typo. `requires { expr; }` asks only whether expr is well formed, and
+   * std::is_void_v<...> is well formed when it is false too -- that spelling would let a
+   * value returning callable through. The second keyword makes it a nested requirement: a
+   * condition that has to hold, not merely compile.
+   *
+   * @remark The trait spelling has to nest, which is part of why it is not the one used here:
+   * the two `if constexpr` cannot be joined with `&&`. `&&` short circuits evaluation, not
+   * instantiation, so std::invoke_result_t is formed whatever the first trait says, and for a
+   * type that is not invocable at all it has no ::type -- a hard error rather than a false
+   * result.
    *
    * @remark The caller must copy the callback out of the argument pack *before* invoking the
    * action: an action taking it by value moves from the caller's std::function, which would
@@ -157,7 +197,7 @@ struct actuator final {
    */
   template <typename last_t>
   void invoke_callback(last_t& last) {
-    if constexpr (std::is_invocable_r_v<void, last_t&, typename result_t::type>) {
+    if constexpr (requires { requires std::is_void_v<decltype(last(results.back()))>; }) {
       last(results.back());
     }
   }

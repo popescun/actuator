@@ -868,4 +868,26 @@ TEST(test_actuator, test_trailing_non_callable_is_not_a_callback) {
   ASSERT_EQ(actuator.results.front(), 5);
 }
 
+TEST(test_actuator, test_callback_with_return_type_is_not_accepted) {
+  // A callback exists to consume the action's return value, so it returns nothing itself.
+  // A trailing callable that does return something is the action's own data -- a transform,
+  // a comparator -- and must not be taken for a callback. This action ignores the transform
+  // entirely, so any call to it can only have come from the callback convention.
+  int calls = 0;
+  std::function<int(int, std::function<int(int)>)> action = [](int v, std::function<int(int)> f) {
+    return v;
+  };
+
+  auto actuator = untangle::connect(action);
+  std::function<int(int)> cbk = [&calls](int v) {
+    ++calls;
+    return v;
+  };
+  actuator(5, cbk);
+
+  ASSERT_EQ(actuator.results.size(), 1);
+  ASSERT_EQ(actuator.results.front(), 5);
+  ASSERT_EQ(calls, 0) << "a callable returning non-void is not a callback and must not run";
+}
+
 }  // namespace untangle::test
