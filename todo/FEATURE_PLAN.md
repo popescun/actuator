@@ -11,7 +11,7 @@ reports that it finished. A task returning nothing reports with a `void()` callb
 the message, the result is optional. The callback is the **last argument of `bind_task()`**, taken
 by position rather than recognised by type, and it is **not** forwarded to the action.
 
-**Status (2026-09-25) — CLOSED. Committed as `1e52939`: steps 1, 2, 3, 4, 6 and 7 done, 99 of 99
+**Status (2026-09-25) — CLOSED. Committed as `beb5fe8`: steps 1, 2, 3, 4, 6 and 7 done, 99 of 99
 green.
 Four probes run; one step closed as declined, one deleted, two struck, two claims corrected. No
 decision left open.**
@@ -227,13 +227,13 @@ check, not a type one — and that is the one hole the parameter cannot close by
 
 | # | Step | Sites | Evidence |
 |---|---|---|---|
-| 1 ✅ | `task_callback_for`, `task_callback_type` and `task<result_t>` | `:63-162` | CONFIRMED (7 cases) — **DONE** (`1e52939`) |
-| 2 ✅ | `untangle::bind_task(action, args..., callback)` — the pack split | `:166-226` | CONFIRMED (8 cases) — **DONE** (`1e52939`) |
-| 3 ✅ | `tasks` storage and `add_task()`, refusing an empty callback | `:291-301`, `:323-329`, `:697-731` | CONFIRMED (9 cases) — **DONE** (`1e52939`) |
-| 4 ✅ | `call_tasks()` — fire, notify, record, consume | `:638-693` | CONFIRMED (8 cases) — **DONE** (`1e52939`) |
+| 1 ✅ | `task_callback_for`, `task_callback_type` and `task<result_t>` | `:63-162` | CONFIRMED (7 cases) — **DONE** (`beb5fe8`) |
+| 2 ✅ | `untangle::bind_task(action, args..., callback)` — the pack split | `:166-226` | CONFIRMED (8 cases) — **DONE** (`beb5fe8`) |
+| 3 ✅ | `tasks` storage and `add_task()`, refusing an empty callback | `:291-301`, `:323-329`, `:697-731` | CONFIRMED (9 cases) — **DONE** (`beb5fe8`) |
+| 4 ✅ | `call_tasks()` — fire, notify, record, consume | `:638-693` | CONFIRMED (8 cases) — **DONE** (`beb5fe8`) |
 | 5 ✅ | `operator()()` with no arguments | — | PROBED — **DECLINED** |
-| 6 ✅ | `has_tasks()`, `is_connected()` untouched | `:827-857` | CONFIRMED (4 cases) — **DONE** (`1e52939`) |
-| 7 ✅ | `README.md`, `tools/make_doc.sh`, and the commits | `README.md`, `doc/` | **DONE** (`1e52939`) |
+| 6 ✅ | `has_tasks()`, `is_connected()` untouched | `:827-857` | CONFIRMED (4 cases) — **DONE** (`beb5fe8`) |
+| 7 ✅ | `README.md`, `tools/make_doc.sh`, and the commits | `README.md`, `doc/` | **DONE** (`beb5fe8`) |
 
 ### Step 1 ✅ · `task_callback_for`, `task_callback_type`, `task<result_t>` — DONE
 
@@ -544,7 +544,7 @@ in it — what a task is against an action, the callback being last and required
 task, arguments copied at bind time, `add_task()` answering `bool`, finished not meaning failed,
 and `has_tasks()` against `is_connected()`.
 
-**Done: the commits — as one, `1e52939`.** Steps 1, 2, 3, 4 and 6 landed together, with the header,
+**Done: the commits — as one, `beb5fe8`.** Steps 1, 2, 3, 4 and 6 landed together, with the header,
 the 36 cases, `README.md` and the reference.
 
 > **One step per commit is what the method says, and this is not that.** The question was left open
@@ -566,16 +566,21 @@ the 36 cases, `README.md` and the reference.
 the actuator bump, and the bump `executor` takes". Struck from here rather than tracked in two
 places; a step that waits on another repo's commit can never close on its own terms.
 
-> **This plan is itself inside `1e52939`**, so the hashes above were written after the fact, by the
+> **This plan is itself inside `beb5fe8`**, so the hashes above were written after the fact, by the
 > `chore: update feature plan` that follows it — as the method says, a commit cannot record its own
 > hash.
 >
-> **And they were written twice.** The first set said `2bd224a`, which an amend — adding the body to
-> the commit message — rewrote into `1e52939`, leaving eleven citations pointing at a commit no
-> branch reached any more. The rule the method already has is not quite enough: **record the hash
-> once the commit is final**, amends included, or expect to write it again. `executor`'s
-> `FIX_PLAN.md` learned the same thing at `bf7739b`, which became `4c1cba6` under an amend and left
-> three dangling references behind it.
+> **And they were written three times.** `2bd224a` became `1e52939` when the commit message gained a
+> body, and `1e52939` became `beb5fe8` on the next amend; both are unreachable from any branch now,
+> and each rewrite left a dozen citations pointing at a commit that no longer existed.
+>
+> **The loop is the lesson, not the typo.** A hash written into the plan and then amended *into* the
+> commit it names can never be right: the amend changes the hash the moment the citation lands.
+> That is precisely why the method puts the plan's own update in a **later** commit — it is not
+> bookkeeping etiquette, it is the only shape in which the number can be true. `executor`'s
+> `FIX_PLAN.md` met the same thing at `bf7739b`, which became `4c1cba6` under an amend and left
+> three dangling references behind it; this is that, three times over, and broken only by letting
+> `chore: update feature plan` sit on top of the commit rather than inside it.
 
 
 
@@ -640,9 +645,9 @@ with its own fix. The plan's own updates are their own commit, and always a late
 
 | Commit | Step |
 |---|---|
-| `1e52939` | 1, 2, 3, 4 and 6 — the whole mechanism, 36 cases, README and the reference |
+| `beb5fe8` | 1, 2, 3, 4 and 6 — the whole mechanism, 36 cases, README and the reference |
 
-**CLOSED.** Every step is done, declined or struck, and all of it is in `1e52939`. 99 of 99 green,
+**CLOSED.** Every step is done, declined or struck, and all of it is in `beb5fe8`. 99 of 99 green,
 clang-format clean, doxygen clean, `README.md` and `doc/refman.pdf` current. Nothing in this repo is
 outstanding and nothing here blocks anything.
 
