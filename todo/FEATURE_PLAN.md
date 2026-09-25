@@ -8,11 +8,11 @@ adds tasks beside them: `untangle::bind_task()` to build one, `actuator::add_tas
 **A task without a callback does not exist.** Decided 2026-09-25, and it is what separates a task
 from an action rather than a restriction laid on top: an action is fired and forgotten, a task
 reports that it finished. A task returning nothing reports with a `void()` callback — *finished* is
-the message, the result is optional. The callback is a **named parameter of `bind_task()`**, not a
-trailing argument the actuator infers, and it is **not** forwarded to the action.
+the message, the result is optional. The callback is the **last argument of `bind_task()`**, taken
+by position rather than recognised by type, and it is **not** forwarded to the action.
 
-**Status (2026-09-25) — nothing written, three probes run, one step closed as declined, one
-deleted.**
+**Status (2026-09-25) — step 1's cases written and red, three probes run, one step closed as
+declined, one deleted, one struck as false.**
 This is a feature plan, not a fix plan: no step below is a defect in code meant to do something
 else. It has one defect at its root all the same — the callback convention does not survive being
 queued — and that is why the feature is worth having rather than a tidier spelling of what exists.
@@ -64,7 +64,7 @@ for the split on its own:
 | stored as | `std::list<action_t*>` (`:123`) + `std::list<action_t> owned` (`:153`) | `std::list<task<R>>` — values, no indirection |
 | needs | `remove()`, `release_owned()`, the dead-action sweep, `translate()` in `copy_from` | none of it |
 | arguments | supplied by the caller at invocation | bound into it at `bind_task()` |
-| callback | trailing argument of the invocation, **optional**, inferred from its type | a named parameter, **required**, carried per task |
+| callback | trailing argument of the invocation, **optional**, recognised by its type | the last argument of `bind_task()`, **required**, taken by position, carried per task |
 | a void one | fires nothing — no result to report | fires `void()` — *finished* is the message |
 
 An action is stored by pointer because `remove()` needs identity and two `std::function`s cannot be
@@ -88,8 +88,9 @@ lambda callback = 21 (want 21)
 
 **What the probe validated is the mechanism, not the signature below.** It ran the earlier shape,
 where the callback was the trailing argument and `bind_task` inferred it. The decision of
-2026-09-25 made it a named parameter, which is strictly easier — no inference, no negative case to
-get right — so the probe over-tested rather than under-tested. The one line it still carries is
+2026-09-25 kept it last but made it required and checked rather than recognised, which is strictly
+easier — nothing to infer and no negative case to get right — so the probe over-tested rather than
+under-tested. The one line it still carries is
 that a callback travels inside a task and fires from the list, which is what the whole feature
 rests on.
 
@@ -101,12 +102,29 @@ concept task_callback_for =
      requires(callback_t& c) { requires std::is_void_v<decltype(c())>; }) ||
     requires(callback_t& c, result_t& r) { requires std::is_void_v<decltype(c(r))>; };
 
+/**
+ * @brief The callback type a task returning \p result_t needs.
+ *
+ * @remark A specialisation rather than a std::conditional_t, which does not work here:
+ * conditional_t forms **both** branches before choosing, and std::function<void(result_t)> with
+ * result_t = void is ill formed -- a parameter of type void cannot be produced by substitution,
+ * however legal void(void) is as literal syntax. A specialisation never forms the branch it does
+ * not take. PROBED: the conditional_t spelling fails with "argument may not have 'void' type".
+ */
+template <typename result_t>
+struct task_callback_type {
+  using type = std::function<void(result_t)>;
+};
+template <>
+struct task_callback_type<void> {
+  using type = std::function<void()>;
+};
+
 //! An action bound to its arguments and to the callback it notifies when it finishes.
 template <typename result_t>
 struct task {
   //! What a task of this result type notifies. A void task says finished and nothing else.
-  using callback_t = std::conditional_t<std::is_void_v<result_t>, std::function<void()>,
-                                        std::function<void(result_t)>>;
+  using callback_t = typename task_callback_type<result_t>::type;
 
   using result_type = result_t;
   result_type operator()() { return call(); }
@@ -116,25 +134,66 @@ struct task {
   callback_t callback;
 };
 
-template <typename action_t, typename callback_t, typename... Args>
-  requires task_callback_for<callback_t, typename action_t::result_type>
-auto bind_task(action_t action, callback_t callback, Args&&... args) {
+/**
+ * @brief Binds an action to its arguments and to the callback it must notify, which is last.
+ *
+ * @remark The pack cannot be followed by a deducible parameter, so the callback arrives inside it
+ * and is split off here. Every caller above forwards (action, args...) and knows nothing of it.
+ */
+template <typename action_t, typename... Args>
+auto bind_task(action_t action, Args&&... args) {
   using result_t = typename action_t::result_type;
 
-  return task<result_t>{
-      .call = [action = std::move(action), ... args = std::forward<Args>(args)]() mutable
-              -> result_t { return action(args...); },
-      .callback = std::move(callback)};
+  static_assert(sizeof...(Args) > 0,
+                "bind_task: a task must be given a callback as its last argument");
+
+  constexpr std::size_t last = sizeof...(Args) - 1;
+  using callback_t = std::tuple_element_t<last, std::tuple<std::decay_t<Args>...>>;
+
+  static_assert(task_callback_for<callback_t, result_t>,
+                "bind_task: the last argument must be a callback taking the task's result and "
+                "returning nothing (void() for a task that returns nothing)");
+
+  auto pack = std::forward_as_tuple(std::forward<Args>(args)...);
+
+  return [&]<std::size_t... i>(std::index_sequence<i...>) {
+    return task<result_t>{
+        .call = [action = std::move(action),
+                 ... bound = std::decay_t<decltype(std::get<i>(pack))>(
+                     std::get<i>(pack))]() mutable -> result_t { return action(bound...); },
+        .callback = std::get<last>(pack)};
+  }(std::make_index_sequence<last>{});
 }
 ```
 
-**The callback is a parameter, not an inference, and that is the whole reason it can be required.**
-The actions path finds its callback by inspecting the last argument — callable with `R`, returns
-void — which works only because it is optional: a trailing argument that is not one simply fires
-nothing. `actuator.hpp:77-80` records the trap that comes with it, a callback written to return a
-value being "silently not invoked". A mandatory callback cannot be found that way. Declared as a
-parameter it cannot be omitted, cannot be mistyped into silence, and needs no `static_assert` to
-enforce — the signature does it.
+**By position, not by inference — and that distinction is the whole reason it can be required.**
+Both paths read the last argument, so it is worth being exact about how they differ. The actions
+path asks *whether* that argument is a callback, by type: callable with `R`, returns void. It can
+only ask that because the answer is allowed to be no — a trailing argument that is not a callback is
+simply an argument, and nothing fires. `actuator.hpp:77-80` records the trap that comes with it, a
+callback written to return a value being "silently not invoked".
+
+A task asks nothing. The last argument **is** the callback, and `task_callback_for` only checks that
+it can serve as one. There is no answer "no" to fall through: a wrong callback is a
+`static_assert`, never a skip. **PROBED** — the diagnostic a caller who forgets it gets:
+
+```
+error: static assertion failed: bind_task: the last argument must be a callback taking
+the task's result and returning nothing (void() for a task that returns nothing)
+```
+
+**The cost of last rather than first.** A parameter pack cannot be followed by another parameter and
+still be deduced, so `bind_task` takes one pack and splits the last element off itself — an
+`index_sequence` fold, about six lines. It is paid **once**: `actuator::add_task()`,
+`execution::add_task()` and `executor::add_task()` all forward `(action, args...)` with the callback
+inside the pack, and none of them knows a split happened. Chosen for the call shape, which then
+reads the way the work does — the arguments, then what to do when it finishes.
+
+**One wrinkle it buys.** If an action's own signature ends in a `std::function<void(R)>` parameter,
+then `add_task(action, cb)` reads two ways: the compiler takes `cb` as the callback and then fails
+because the action wanted an argument. It resolves as an error and never silently, but the error
+will not say "you meant that as an argument". Callback-first could not produce the case at all;
+this is the trade.
 
 **It is not forwarded to the action**, which is the second dividend. Under the old shape every task
 action had to carry a callback parameter it ignored, and a void task's signature had to grow one
@@ -166,27 +225,26 @@ check, not a type one — and that is the one hole the parameter cannot close by
 
 | # | Step | Sites | Evidence |
 |---|---|---|---|
-| 1 | `task_callback_for`, and `task<result_t>` with its `callback_t` | new | PROBED (void case) |
-| 2 | `untangle::bind_task()` — action, callback, arguments | new, beside `last_arg` `:54` | PROBED |
+| 1 | `task_callback_for`, `task_callback_type` and `task<result_t>` | new | PROBED (void needs a specialisation) — **7 cases written, red** |
+| 2 | `untangle::bind_task(action, args..., callback)` — the pack split | new, beside `last_arg` `:55` | PROBED |
 | 3 | `tasks` storage and `add_task()`, and what it does with an empty callback | new, beside `:141-153` | read-only |
 | 4 | `call_tasks()` — fire, notify, record, consume | new, mirrors `:349-390` | read-only |
 | 5 ✅ | `operator()()` with no arguments | — | PROBED — **DECLINED** |
 | 6 | `is_connected()` vs a new `has_tasks()` | `:552` | **OPEN, decision** |
 | 7 | the suite gains tasks | `test/actuator_test.cpp` | — |
-| 8 | the actions path gains the callback cases it never had | `test/actuator_test.cpp` | **independent, see below** |
-| 9 | `tools/make_doc.sh`, and the bump async takes | `doc/` | — |
+| 8 | `tools/make_doc.sh`, and the bump async takes | `doc/` | — |
 
 ### Step 1 · the two rules are different, so they do not share a concept
 
 An earlier draft had one concept serving both paths, with `invoke_callback()` (`:327`) rewritten
-onto it. **That step is gone.** Once a task's callback became required, took a named parameter and
-admitted `void()`, the two rules stopped being the same rule:
+onto it. **That step is gone.** Once a task's callback became required, taken by position rather
+than recognised by type, and admitted `void()`, the two rules stopped being the same rule:
 
 | | Action callback | Task callback |
 |---|---|---|
 | optional | yes | no |
 | void results | never fires | fires `void()` |
-| found by | inspecting the trailing argument | declared as a parameter |
+| found by | asking whether the trailing argument is one | taking the last argument, and checking it |
 | forwarded to the action | yes, it is also an argument | no |
 
 `task_callback_for` is therefore task-only, and `invoke_callback()` is not touched by this plan at
@@ -277,18 +335,27 @@ alone, a queue full of tasks reports itself empty and the drain breaks.
 Not decided. One line either way, and a deliberate one rather than a drive-by. **It gates async's
 step 4.**
 
-### Step 8 · the actions path has never been tested — and that is not this feature
+### Struck — "the actions path has never been tested"
 
-`grep -i callback` over `test/` and `example/` returns nothing. Four commits built the actions
-callback convention — `f001d12` (named actions), `d731129` (lambdas qualify), `5816237` (a callback
-must return void) — and not one of them left a case behind. The baseline is 25 of 25 green and none
-of the 25 touch it.
+**Withdrawn 2026-09-25, the day it was written.** It claimed `grep -i callback` over `test/` and
+`example/` returned nothing, and that four commits had built the actions callback convention without
+leaving a case behind. **The claim is false.** The convention has eight cases at
+`test/actuator_test.cpp:761-900`, among them `test_action_has_callback`,
+`test_named_action_has_callback`, `test_anonymous_lambda_as_callback`,
+`test_callback_with_return_type_is_not_accepted`, `test_action_callback_passed_as_rvalue` and
+`test_every_action_receives_a_usable_callback` — which is to say every rule the convention has,
+including the two that are easy to get wrong.
 
-It is recorded here because this is where it was found, not because the feature depends on it. With
-step 1 gone, nothing in this plan modifies `invoke_callback()`, so no safety net is owed before the
-work starts. **Land it separately**, on its own commit, whenever it suits: callback fired with each
-action's result, a lambda qualifying, a value-returning trailing argument left alone,
-`invoke_action()` firing it too, and a void action getting none.
+**Where the error came from is the part worth keeping.** The grep ran against a checkout of this
+repo on `master`, a 374-line lineage on which `a8b8b47` is not an ancestor and the callback
+convention does not exist at all. The suite there is 25 cases; on `main` it is 63. The reading was
+correct about the file it read and wrong about the repository.
+
+**Method, then:** a claim about what the suite does not cover is a claim about a specific checkout,
+and it is worth naming the commit before recording it. The executor's `FIX_PLAN.md` already learned
+the neighbouring lesson at its own step 22 — a conclusion reached by reading an interface instead of
+compiling against it was the one it had to retract. This is the same shape with a different cause:
+not a reading of the wrong kind, but a reading of the wrong tree.
 
 ## Order
 
