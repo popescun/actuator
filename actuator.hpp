@@ -5,12 +5,14 @@
  */
 #pragma once
 
+#include <cstddef>
 #include <exception>
 #include <functional>
 #include <list>
 #include <map>
 #include <memory>
 #include <string>
+#include <tuple>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -58,6 +60,170 @@ auto last_arg(Args&&... args) {
   } else {
     return std::get<sizeof...(Args) - 1>(std::forward_as_tuple(args...));
   }
+}
+
+/**
+ * @brief Can \p callback_t be called as the completion callback of a task returning \p result_t?
+ *
+ * A task's callback is required, and it is the **last argument** given to `bind_task()` rather
+ * than a trailing argument recognised by its type. So the question this asks is not *whether* the
+ * argument is a callback -- it is one, by position -- but only whether it can serve as one.
+ *
+ * @remark That is the whole difference from an action's callback convention, which asks the
+ * *whether* and is allowed to answer no: a trailing argument that is not a callback is simply an
+ * argument, and nothing is invoked. A task has no such answer to fall through to, which is what
+ * lets the callback be required. See the callback convention on the actuator itself, and the
+ * warning that comes with it.
+ *
+ * @remark A task returning nothing still reports that it finished, so for \p result_t of void the
+ * callback takes no argument at all. The disjunct that asks to be handed a result yields **false**
+ * there rather than failing hard -- forming `void&` in a requires-parameter list is a substitution
+ * failure in the immediate context -- which leaves the void disjunct to decide. Its
+ * `std::is_void_v` guard is not decoration either: without it a `std::function<void()>` would
+ * satisfy this for *any* result type, and a task's result would go unreported.
+ *
+ * @tparam callback_t Type of the callback.
+ * @tparam result_t Result type of the task it reports on.
+ */
+template <typename callback_t, typename result_t>
+concept task_callback_for =
+    requires(callback_t& c, result_t& r) { requires std::is_void_v<decltype(c(r))>; } ||
+    (std::is_void_v<result_t> &&
+     requires(callback_t& c) { requires std::is_void_v<decltype(c())>; });
+
+/**
+ * @brief The callback type a task returning \p result_t needs.
+ *
+ * The caller writes the callback, so a task has to say what shape it must have.
+ *
+ * @remark A specialisation rather than a std::conditional_t, which cannot serve here:
+ * conditional_t forms **both** branches before choosing one, and `std::function<void(result_t)>`
+ * with \p result_t of void is ill formed -- a parameter of type void cannot be produced by
+ * substitution, however legal `void(void)` is as literal syntax. A specialisation never forms the
+ * branch it does not take.
+ *
+ * @tparam result_t Result type of the task.
+ */
+template <typename result_t>
+struct task_callback_type {
+  using type = std::function<void(result_t)>;  //!< Handed the result the task produced.
+};
+
+/**
+ * @brief The callback of a task that produces no result: it reports only that the task finished.
+ */
+template <>
+struct task_callback_type<void> {
+  using type = std::function<void()>;
+};
+
+/**
+ * @brief An action bound to its arguments, and to the callback it notifies once it has finished.
+ *
+ * What \ref actuator::add_task() holds and `actuator::call_tasks()` fires. One is built by
+ * \ref bind_task(), which binds the arguments into \ref task::call and takes \ref task::callback
+ * off the end of the same pack.
+ *
+ * @remark **An action is a subscription; a task is a one-shot.** An action lives across
+ * invocations and is fired with a pack the caller supplies each time. A task carries its own
+ * arguments, is fired once, and reports to its own callback. That is why a task is held by value
+ * rather than by pointer, and why nothing removes one -- call_tasks() consumes it.
+ *
+ * @remark The argument types do not appear here. \ref bind_task() binds them into \ref task::call,
+ * whose signature is nullary, so **one container holds tasks built from completely different
+ * argument packs** -- which is what lets a queue of them exist at all.
+ *
+ * @tparam result_t Result type of the action the task was built from.
+ */
+template <typename result_t>
+struct task {
+  //! What a task of this result type notifies. A void task says finished and nothing else.
+  using callback_t = typename task_callback_type<result_t>::type;
+
+  //! What \ref task::call returns, as an actuator reads it off an action type.
+  using result_type = result_t;
+
+  /**
+   * @brief Runs the action, with the arguments bound into it.
+   *
+   * @remark It does not notify. `actuator::call_tasks()` does, once this has returned -- so a
+   * task that throws never reports, because there is no result and no completion to report.
+   */
+  result_type operator()() { return call(); }
+
+  /**
+   * @brief Is there anything to run?
+   *
+   * @remark actuator::operator()() tests an action before invoking it, and a task has to answer
+   * that test the way a std::function does.
+   */
+  explicit operator bool() const { return static_cast<bool>(call); }
+
+  std::function<result_type(void)> call;  //!< The action, with its arguments already bound.
+  callback_t callback;                    //!< Notified with the result, once \ref call returned.
+};
+
+/**
+ * @brief Binds an action to its arguments and to the callback it must notify, which comes last.
+ *
+ * What builds a \ref task. The arguments are bound into task::call, and the callback is taken
+ * the end of the same pack. A task built here runs later than it was built -- that is what a queue
+ * of them is for -- so the arguments are **copied** now, while the caller still holds them, and
+ * handed to the action as the task's own lvalues when it runs.
+ *
+ * @remark **The callback is the last argument, by position.** It cannot be a parameter of its own:
+ * a parameter pack cannot be followed by another parameter and still be deduced, so it arrives
+ * inside \p args and is split off here. That split is paid once -- every caller above forwards
+ * (action, args...) and never learns of it.
+ *
+ * @remark It is **not** a trailing argument recognised by its type, which is what an action's
+ * callback convention does; see the convention on \ref actuator. Here the last argument *is* the
+ * callback, and \ref task_callback_for only checks that it can serve as one. There is no answer
+ * "no" to fall through to, which is what lets a task's callback be required.
+ *
+ * @remark It is **not** forwarded to the action either. The action is invoked with \p args minus
+ * its last element, so an action needs no callback parameter of its own -- and a void action,
+ * which could never have used one, is a task like any other.
+ *
+ * @attention Each argument is copied, so a move-only one does not compile. The task outlives the
+ * call that built it and cannot borrow what the caller may already have destroyed.
+ *
+ * @tparam action_t Type of the action. Any callable naming a result_type will do; it need not be a
+ * std::function.
+ * @tparam Args Types of the arguments to bind, of which the last is the callback.
+ * @param action - The action to bind.
+ * @param args - The arguments to bind to \p action, followed by the callback to notify.
+ *
+ * @return The task, ready to be held by \ref actuator::add_task() and fired by
+ * actuator::call_tasks().
+ */
+template <typename action_t, typename... Args>
+auto bind_task(action_t action, Args&&... args) {
+  using result_t = typename action_t::result_type;
+
+  static_assert(sizeof...(Args) > 0,
+                "bind_task: a task must be given a callback as its last argument");
+
+  constexpr std::size_t last = sizeof...(Args) - 1;
+  using callback_t = std::tuple_element_t<last, std::tuple<std::decay_t<Args>...>>;
+
+  static_assert(task_callback_for<callback_t, result_t>,
+                "bind_task: the last argument must be a callback taking the task's result and "
+                "returning nothing (void() for a task that returns nothing)");
+
+  // References into the caller's arguments. What is copied out of it is the task's own, below.
+  auto pack = std::forward_as_tuple(std::forward<Args>(args)...);
+
+  // The pack is indexed rather than unpacked, because everything but its last element is bound and
+  // a fold cannot say "all but the last".
+  return [&]<std::size_t... i>(std::index_sequence<i...>) {
+    return task<result_t>{
+        .call = [action = std::move(action), ... bound = std::decay_t<decltype(std::get<i>(pack))>(
+                                                 std::get<i>(pack))]() mutable -> result_t {
+          return action(bound...);
+        },
+        .callback = std::get<last>(pack)};
+  }(std::make_index_sequence<last>{});
 }
 
 /**
@@ -122,6 +288,17 @@ struct actuator final {
    */
   using actions_t = std::list<action_t*>;
   using actions_map_t = std::map<std::string, action_t*>;
+  /**
+   * @brief Tasks container type.
+   *
+   * @remark The elements are **values**, not pointers. An action is stored by pointer because
+   * \ref remove() needs identity and two std::function(s) cannot be compared; a task is never
+   * removed one at a time -- \ref call_tasks() consumes the whole list -- so it needs neither.
+   *
+   * @remark A std::list for the same reason \ref owned is one: adding never invalidates the
+   * address of an element already in it, so a reference taken into the list stays good.
+   */
+  using tasks_t = std::list<task<typename action_t::result_type>>;
   using result_t = std::conditional<std::is_void<typename action_t::result_type>::value, int,
                                     typename action_t::result_type>;
   /**
@@ -142,6 +319,14 @@ struct actuator final {
   actions_map_t actions_map;  //!< Named actions map.
   results_t results;          //!< Actions return values list.
   errors_t errors;            //!< What the actions threw. See \ref errors_t.
+
+  /**
+   * @brief Tasks waiting to be fired, in the order \ref add_task() took them.
+   *
+   * @remark Held beside \ref actions and sharing nothing with them: \ref operator()() fires the
+   * actions and leaves these alone, \ref call_tasks() fires these and leaves the actions alone.
+   */
+  tasks_t tasks;
 
   /**
    * @brief Actions this actuator owns, as added by \ref add(action_t&&).
@@ -236,6 +421,9 @@ struct actuator final {
     for (const auto& entry : other.actions_map) {
       actions_map.emplace(entry.first, translate(entry.second));
     }
+    // Named explicitly, like every member here: this function does not default, so anything it
+    // does not copy is silently lost by every copy of an actuator.
+    tasks = other.tasks;
     results = other.results;
     errors = other.errors;
   }
@@ -448,6 +636,63 @@ struct actuator final {
   }
 
   /**
+   * @brief Fires every task held, notifies each callback, and empties the list.
+   *
+   * A task runs, and the callback it was built with is invoked with what it returned -- with
+   * nothing at all, for a task whose action returns void, because *finished* is the message and
+   * the result is optional. Tasks run in the order \ref add_task() took them.
+   *
+   * @remark **It does not fire the actions**, exactly as \ref operator()() does not fire the
+   * tasks. The two kinds share an actuator and nothing else.
+   *
+   * @remark **A task's result is delivered to its callback and nowhere else.** actuator::results is
+   * how an action hands back what it returned; a task was built with something better, and does not
+   * need both.
+   *
+   * @remark **What anything throws is appended to actuator::errors, not written over it.**
+   * \ref operator()() clears that list as it starts and this does not, so an actuator fired as
+   * `one(); one.call_tasks();` reports both kinds together -- which means **the actions go
+   * first**. The other order loses what the tasks recorded.
+   *
+   * @remark Failure convention, as \ref operator()() has one: a task that throws does not stop the
+   * pass, and the tasks behind it still run.
+   *
+   * @attention **Finished does not mean failed.** A task whose action throws is *not* notified:
+   * there is no result to hand over, and for a void task no completion to report either. What it
+   * threw goes to actuator::errors and nothing else is said. A caller relying on the callback
+   * alone will never hear about it -- read the errors.
+   *
+   * @attention A callback runs inside the same `try` as the task that owns it, so what **it**
+   * throws travels the same path. actuator::errors can therefore hold a failure for a task whose
+   * action in fact succeeded. The task is consumed either way; re-running an action that already
+   * ran, to reach a callback that already threw, would be worse than losing the notification.
+   */
+  void call_tasks() {
+    // Taken by swap, so a callback that adds a task adds it to the *next* pass. Iterating the
+    // member instead would let a task that re-adds itself keep this loop from ever ending -- and
+    // it is the same reason a queue built on this takes its batch by move.
+    tasks_t firing;
+    firing.swap(tasks);
+
+    for (auto& one : firing) {
+      try {
+        if constexpr (std::is_void_v<typename action_t::result_type>) {
+          one();
+          one.callback();
+        } else {
+          // One expression, so the result is handed over as an rvalue: a result type that cannot
+          // be copied is still a result a task can report.
+          one.callback(one());
+        }
+      } catch (...) {
+        // The task's own failure, or its callback's -- the two are not told apart here, and the
+        // attention above says why.
+        errors.push_back(std::current_exception());
+      }
+    }
+  }
+
+  /**
    * @brief Add an action to the actions list.
    *
    * @param action - Action to be added.
@@ -507,6 +752,42 @@ struct actuator final {
   }
 
   /**
+   * @brief Adds a task, to be fired by \ref call_tasks().
+   *
+   * A task is built by \ref bind_task(), which binds an action to its arguments and to the callback
+   * it must notify, and is stored here by value -- the actuator owns every task it holds, unlike
+   * the actions it merely points at.
+   *
+   * @remark There is no counterpart to \ref remove(). \ref call_tasks() consumes the list, so a
+   * task leaves by being fired; nothing needs to identify one afterwards.
+   *
+   * @remark Nor is there a named form. \ref actions_map exists so \ref invoke_action() can fire
+   * one action on demand; tasks are fired as a batch, and the order they were added in is the order
+   * they run in.
+   *
+   * @attention It refuses a task that could not do its job, and **the refusal is the whole report**
+   * -- nothing is thrown and nothing is stored. Both cases are the caller's own mistake and both
+   * are caught here, while the caller is still on the stack, rather than surfacing from
+   * \ref call_tasks() as a std::bad_function_call recorded in actuator::errors. There it would be
+   * read as the failure of a task whose action had in fact succeeded, on whatever thread happened
+   * to fire it.
+   *
+   * @param task - The task to add. It is taken by value and moved from; a refused one is dropped.
+   *
+   * @return true - the task was taken, and \ref call_tasks() will fire it.
+   * @return false - it was refused, because it has nothing to run or no callback to notify. A task
+   * that cannot report is not a task; see the convention on \ref untangle::task.
+   */
+  bool add_task(task<typename action_t::result_type>&& task) {
+    if (!task || !task.callback) {
+      return false;
+    }
+
+    tasks.push_back(std::move(task));
+    return true;
+  }
+
+  /**
    * @brief Remove an action from the actions list.
    *
    * An invalid action (empty std::function) is implicitly removed when operator()() is invoked.
@@ -546,10 +827,34 @@ struct actuator final {
   /**
    * @brief Check if this actuator is "connected" with other actions.
    *
+   * @remark **It answers for the actions and for nothing else.** Tasks are not actions and do not
+   * make an actuator connected; ask \ref has_tasks() about those. Kept this way deliberately when
+   * tasks arrived, because a caller that will never hold a task -- an attachment, a poll -- reads
+   * this and must keep reading the answer it always read.
+   *
    * @return true - if the actuator::actions list is not empty.
    * @return false - if the actuator::actions list is empty.
    */
   bool is_connected() const { return !actions.empty() || !actions_map.empty(); }
+
+  /**
+   * @brief Is there a task waiting to be fired?
+   *
+   * The counterpart to \ref is_connected(), and the two answer different questions: this one is
+   * about actuator::tasks, that one about actuator::actions. An actuator can hold either, both, or
+   * neither.
+   *
+   * @remark It is what a queue asks to decide whether its worker still has work. Reading
+   * \ref is_connected() for that would report a batch of tasks as nothing to do, and the work
+   * would sit unfired.
+   *
+   * @remark A refused task is not a waiting one: \ref add_task() answering false means the task was
+   * dropped, so this stays false.
+   *
+   * @return true - a task is waiting; \ref call_tasks() has something to fire.
+   * @return false - no task is waiting. True again after \ref call_tasks(), which consumes them.
+   */
+  bool has_tasks() const { return !tasks.empty(); }
 
   /**
    * @brief Check if there is certain named action.

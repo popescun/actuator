@@ -1318,4 +1318,676 @@ TEST(test_actuator, test_invoke_action_records_what_the_action_threw) {
   ASSERT_TRUE(actuator_notify.has_action("throwing")) << "an action that threw is not a dead one";
 }
 
+// --- tasks, step 1 -------------------------------------------------------------------------------
+// A task is an action bound to its arguments and to the callback it must notify. Unlike an action's
+// callback, a task's is required, is taken by position rather than recognised by its type, and
+// exists for a void result too: a task with nothing to report still has a completion to report.
+// See todo/FEATURE_PLAN.md.
+
+//! A callable that consumes an int and returns nothing: a callback for a task returning int.
+struct int_sink {
+  void operator()(int) const {}
+};
+
+//! A callable that consumes an int and returns one: the action's own data, never a callback.
+struct int_transform {
+  int operator()(int v) const { return v; }
+};
+
+//! A callable that takes nothing and returns nothing: a callback for a task returning void.
+struct finished_sink {
+  void operator()() const {}
+};
+
+TEST(test_actuator, test_task_callback_for_accepts_any_void_returning_callable) {
+  // The convention tests what the callback can do, not what it is, so a std::function, a
+  // functor, a lambda and a plain function pointer all qualify.
+  static_assert(untangle::task_callback_for<std::function<void(int)>, int>);
+  static_assert(untangle::task_callback_for<int_sink, int>);
+  static_assert(untangle::task_callback_for<void (*)(int), int>);
+
+  auto lambda = [](int) {};
+  static_assert(untangle::task_callback_for<decltype(lambda), int>);
+
+  // A result type with no default constructor is still a result to report.
+  static_assert(untangle::task_callback_for<std::function<void(measurement)>, measurement>);
+}
+
+TEST(test_actuator, test_task_callback_for_rejects_what_cannot_report_a_result) {
+  // A callback exists to consume the result, so it returns nothing itself. One that returns a
+  // value is the action's own data -- a transform, a comparator -- and is not a callback.
+  static_assert(!untangle::task_callback_for<std::function<int(int)>, int>);
+  static_assert(!untangle::task_callback_for<int_transform, int>);
+
+  // Not callable at all.
+  static_assert(!untangle::task_callback_for<int, int>);
+
+  // Callable, returns nothing, but cannot be handed the result.
+  static_assert(!untangle::task_callback_for<std::function<void(std::string)>, int>);
+  static_assert(!untangle::task_callback_for<std::function<void()>, int>);
+}
+
+TEST(test_actuator, test_task_callback_for_a_void_result_takes_no_argument) {
+  // Decided 2026-09-25: a task returning nothing still reports that it finished, so its callback
+  // is a void() rather than no callback at all. That is what separates a task from an action --
+  // an action with a void return has no callback of any kind.
+  static_assert(untangle::task_callback_for<std::function<void()>, void>);
+  static_assert(untangle::task_callback_for<finished_sink, void>);
+
+  // There is no result to hand it, so one that asks for a result cannot report this task.
+  static_assert(!untangle::task_callback_for<std::function<void(int)>, void>);
+  static_assert(!untangle::task_callback_for<int_sink, void>);
+}
+
+TEST(test_actuator, test_task_names_the_callback_type_its_result_needs) {
+  // The caller writes the callback, so the task has to say what shape it must have -- and for a
+  // void result that shape is not std::function<void(void)> by accident, it is the one callback a
+  // task with no result can have.
+  static_assert(std::is_same_v<untangle::task<int>::callback_t, std::function<void(int)>>);
+  static_assert(std::is_same_v<untangle::task<void>::callback_t, std::function<void()>>);
+
+  static_assert(std::is_same_v<untangle::task<int>::result_type, int>);
+  static_assert(std::is_same_v<untangle::task<void>::result_type, void>);
+
+  // Whatever a task names, it must satisfy the concept the callback is constrained by, or a
+  // caller could write the type the task asks for and still be refused.
+  static_assert(untangle::task_callback_for<untangle::task<int>::callback_t, int>);
+  static_assert(untangle::task_callback_for<untangle::task<void>::callback_t, void>);
+}
+
+TEST(test_actuator, test_task_without_a_call_is_empty) {
+  // actuator::operator() tests an action before invoking it, and a task has to answer that test
+  // the way a std::function does. A default-constructed one holds nothing to run.
+  untangle::task<int> empty;
+  ASSERT_FALSE(static_cast<bool>(empty));
+
+  untangle::task<int> ready;
+  ready.call = [] { return 42; };
+  ASSERT_TRUE(static_cast<bool>(ready));
+}
+
+TEST(test_actuator, test_task_carries_the_callback_it_must_notify) {
+  // The whole point of a task: the callback travels with it rather than arriving beside the
+  // invocation, so one held in a container can still be notified when it runs. Built by hand
+  // here -- bind_task() is step 2.
+  int reported = 0;
+
+  untangle::task<int> one;
+  one.call = [] { return 21 * 2; };
+  one.callback = [&reported](int result) { reported = result; };
+
+  const int result = one();
+  ASSERT_EQ(result, 42);
+
+  one.callback(result);
+  ASSERT_EQ(reported, 42) << "a task that cannot notify is not a task";
+}
+
+TEST(test_actuator, test_void_task_carries_a_callback_that_reports_only_that_it_finished) {
+  // The half an action's callback convention has no answer for: nothing to hand over, and still
+  // something to say.
+  bool finished = false;
+  int ran = 0;
+
+  untangle::task<void> one;
+  one.call = [&ran] { ++ran; };
+  one.callback = [&finished] { finished = true; };
+
+  one();
+  ASSERT_EQ(ran, 1);
+  ASSERT_FALSE(finished) << "the call must not notify; call_tasks() does, in step 4";
+
+  one.callback();
+  ASSERT_TRUE(finished);
+}
+
+// --- tasks, step 2 -------------------------------------------------------------------------------
+// bind_task() builds a task: it binds the action's arguments into task::call and takes
+// task::callback off the end of the same pack. The callback is the last argument, by position - a
+// pack cannot be followed by a deducible parameter, so the split happens inside bind_task() and
+// every caller above it just forwards. See todo/FEATURE_PLAN.md step 2.
+
+//! An action type that is not a std::function: a callable naming its own result_type.
+struct summing_action {
+  using result_type = int;
+
+  int operator()(int a, int b) const { return a + b; }
+};
+
+TEST(test_actuator, test_bind_task_binds_the_arguments_and_carries_the_callback) {
+  // That this compiles at all is half the claim: the action takes two arguments, and it is given
+  // two plus a callback. If bind_task forwarded the callback to the action the call would be
+  // action(20, 22, cbk) and there would be no such overload.
+  int reported = 0;
+  std::function<int(int, int)> action = [](int a, int b) { return a + b; };
+
+  auto one = untangle::bind_task(
+      action, 20, 22, std::function<void(int)>([&reported](int result) { reported = result; }));
+
+  ASSERT_TRUE(static_cast<bool>(one)) << "bind_task returned a task with nothing to run";
+  ASSERT_EQ(one(), 42);
+  ASSERT_EQ(reported, 0) << "the call must not notify; call_tasks() does, in step 4";
+
+  one.callback(42);
+  ASSERT_EQ(reported, 42);
+}
+
+TEST(test_actuator, test_bind_task_with_no_arguments_takes_only_the_callback) {
+  // An action with nothing to bind still needs a callback, so the callback is the whole pack.
+  int reported = 0;
+  std::function<int()> action = [] { return 7; };
+
+  auto one = untangle::bind_task(
+      action, std::function<void(int)>([&reported](int result) { reported = result; }));
+
+  one.callback(one());
+  ASSERT_EQ(reported, 7);
+}
+
+TEST(test_actuator, test_bind_task_for_a_void_action_takes_a_void_callback) {
+  // The half an action's callback convention has no answer for: nothing to hand over, and still
+  // something to say.
+  bool finished = false;
+  int ran = 0;
+  std::function<void(int)> action = [&ran](int by) { ran += by; };
+
+  auto one =
+      untangle::bind_task(action, 5, std::function<void()>([&finished] { finished = true; }));
+
+  one();
+  ASSERT_EQ(ran, 5);
+  ASSERT_FALSE(finished);
+
+  one.callback();
+  ASSERT_TRUE(finished);
+}
+
+TEST(test_actuator, test_bind_task_copies_its_arguments_at_bind_time) {
+  // A task runs later than it is built -- that is what a queue is for -- so what it runs with has
+  // to be the caller's values as they were when the task was made, not whatever they became.
+  int value = 10;
+  std::function<int(int)> action = [](int n) { return n; };
+
+  auto one = untangle::bind_task(action, value, std::function<void(int)>([](int) {}));
+
+  value = 99;
+  ASSERT_EQ(one(), 10) << "the task read the caller's variable rather than its own copy";
+}
+
+TEST(test_actuator, test_bind_task_hands_the_action_lvalues) {
+  // The bound arguments are the task's own, and it hands them over as lvalues -- so an action
+  // taking a reference is given the copy inside the task, and may write to it. Anything else would
+  // mean an action taking int& could not be a task at all.
+  std::function<int(int&)> action = [](int& n) {
+    n *= 2;
+    return n;
+  };
+
+  int original = 21;
+  auto one = untangle::bind_task(action, original, std::function<void(int)>([](int) {}));
+
+  ASSERT_EQ(one(), 42);
+  ASSERT_EQ(original, 21) << "the action wrote through to the caller's object";
+}
+
+TEST(test_actuator, test_bind_task_accepts_a_bare_lambda_as_the_callback) {
+  // task_callback_for tests what the callback can do, not what it is, so a lambda needs no
+  // wrapping at the call site; the task erases it into its own callback_t.
+  int reported = 0;
+  std::function<int(int)> action = [](int n) { return n * 3; };
+
+  auto one = untangle::bind_task(action, 7, [&reported](int result) { reported = result; });
+
+  static_assert(std::is_same_v<decltype(one), untangle::task<int>>);
+
+  one.callback(one());
+  ASSERT_EQ(reported, 21);
+}
+
+TEST(test_actuator, test_bind_task_accepts_an_action_type_that_is_not_a_std_function) {
+  // bind_task reads result_type off the action type, which is all it asks of it. A caller's own
+  // functor therefore builds a task, and never touches std::function::result_type -- which C++20
+  // removed.
+  int reported = 0;
+
+  auto one = untangle::bind_task(summing_action{}, 40, 2,
+                                 std::function<void(int)>([&reported](int r) { reported = r; }));
+
+  static_assert(std::is_same_v<decltype(one), untangle::task<int>>);
+
+  one.callback(one());
+  ASSERT_EQ(reported, 42);
+}
+
+TEST(test_actuator, test_two_tasks_from_one_action_keep_their_own_arguments_and_callbacks) {
+  // What lets a container of tasks exist: the arguments live in the task, not in the action, so one
+  // action yields tasks that differ in what they run with and in who they report to.
+  int first = 0;
+  int second = 0;
+  std::function<int(int)> action = [](int n) { return n; };
+
+  auto one =
+      untangle::bind_task(action, 1, std::function<void(int)>([&first](int r) { first = r; }));
+  auto two =
+      untangle::bind_task(action, 2, std::function<void(int)>([&second](int r) { second = r; }));
+
+  two.callback(two());
+  one.callback(one());
+
+  ASSERT_EQ(first, 1);
+  ASSERT_EQ(second, 2);
+}
+
+// --- tasks, step 3 -------------------------------------------------------------------------------
+// The actuator holds tasks beside its actions: actuator::tasks, reached through add_task(). A task
+// is stored by value and never removed individually - call_tasks() consumes the list - so none of
+// the machinery actions need (pointers, owned, remove(), the translate() step in copy_from) applies
+// to it. What does apply is that copy_from() copies every member by hand, so tasks have to be
+// copied there too or a copied actuator silently loses them. See todo/FEATURE_PLAN.md step 3.
+
+TEST(test_actuator, test_add_task_holds_the_task) {
+  untangle::actuator<std::function<int(int)>> actuator;
+  ASSERT_TRUE(actuator.tasks.empty());
+
+  const bool taken = actuator.add_task(untangle::bind_task(
+      std::function<int(int)>([](int n) { return n; }), 1, std::function<void(int)>([](int) {})));
+
+  ASSERT_TRUE(taken) << "add_task refused a task it should have taken";
+  ASSERT_EQ(actuator.tasks.size(), 1);
+  ASSERT_TRUE(static_cast<bool>(actuator.tasks.front()));
+}
+
+TEST(test_actuator, test_add_task_keeps_the_order_they_were_added) {
+  // The order tasks come out in is the order they went in. A queue built on this depends on it.
+  untangle::actuator<std::function<int(int)>> actuator;
+  std::function<int(int)> action = [](int n) { return n; };
+
+  for (int i = 1; i <= 3; ++i) {
+    actuator.add_task(untangle::bind_task(action, i, std::function<void(int)>([](int) {})));
+  }
+
+  std::vector<int> seen;
+  for (auto& one : actuator.tasks) {
+    seen.push_back(one());
+  }
+
+  ASSERT_THAT(seen, testing::ElementsAre(1, 2, 3));
+}
+
+TEST(test_actuator, test_a_task_survives_being_stored) {
+  // It is moved into the list, so what it bound has to still be there afterwards -- both the
+  // arguments in its call and the callback it has to notify.
+  int reported = 0;
+  untangle::actuator<std::function<int(int, int)>> actuator;
+
+  actuator.add_task(untangle::bind_task(
+      std::function<int(int, int)>([](int a, int b) { return a + b; }), 20, 22,
+      std::function<void(int)>([&reported](int result) { reported = result; })));
+
+  auto& stored = actuator.tasks.front();
+  stored.callback(stored());
+
+  ASSERT_EQ(reported, 42);
+}
+
+TEST(test_actuator, test_copying_an_actuator_copies_its_tasks) {
+  // copy_from() copies each member by hand rather than defaulting, so a member it does not name is
+  // silently dropped. A copy that lost its tasks would look like an actuator with nothing to do.
+  int reported = 0;
+  untangle::actuator<std::function<int(int)>> source;
+
+  source.add_task(untangle::bind_task(
+      std::function<int(int)>([](int n) { return n * 2; }), 21,
+      std::function<void(int)>([&reported](int result) { reported = result; })));
+
+  untangle::actuator<std::function<int(int)>> copy = source;
+
+  ASSERT_EQ(copy.tasks.size(), 1) << "the copy lost the tasks the source held";
+  ASSERT_EQ(source.tasks.size(), 1) << "copying took the tasks from the source";
+
+  auto& one = copy.tasks.front();
+  one.callback(one());
+  ASSERT_EQ(reported, 42) << "the copied task no longer runs what it was bound to";
+}
+
+TEST(test_actuator, test_moving_an_actuator_carries_its_tasks) {
+  // The queue this is built for takes its batch by move, under a lock, and runs it outside one.
+  int reported = 0;
+  untangle::actuator<std::function<int(int)>> source;
+
+  source.add_task(untangle::bind_task(
+      std::function<int(int)>([](int n) { return n * 2; }), 21,
+      std::function<void(int)>([&reported](int result) { reported = result; })));
+
+  auto moved = std::move(source);
+  ASSERT_EQ(moved.tasks.size(), 1);
+
+  untangle::actuator<std::function<int(int)>> assigned;
+  assigned = std::move(moved);
+  ASSERT_EQ(assigned.tasks.size(), 1);
+
+  auto& one = assigned.tasks.front();
+  one.callback(one());
+  ASSERT_EQ(reported, 42);
+}
+
+TEST(test_actuator, test_tasks_and_actions_live_side_by_side) {
+  // The two kinds share an actuator and nothing else. operator() fires the actions and leaves the
+  // tasks where they are -- call_tasks() is what fires those, in step 4.
+  int action_calls = 0;
+  int task_runs = 0;
+  int reported = 0;
+
+  std::function<int(int)> action = [&action_calls](int n) {
+    ++action_calls;
+    return n;
+  };
+
+  auto actuator = untangle::connect(action);
+  actuator.add_task(untangle::bind_task(
+      std::function<int(int)>([&task_runs](int n) {
+        ++task_runs;
+        return n;
+      }),
+      7, std::function<void(int)>([&reported](int result) { reported = result; })));
+
+  actuator(5);
+
+  ASSERT_EQ(action_calls, 1) << "adding a task disturbed the actions";
+  ASSERT_EQ(actuator.results.size(), 1) << "the task's result was collected by operator()";
+  ASSERT_EQ(actuator.results.front(), 5);
+  ASSERT_EQ(task_runs, 0) << "operator() ran a task; only call_tasks() may";
+  ASSERT_EQ(reported, 0) << "operator() notified a task's callback";
+  ASSERT_EQ(actuator.tasks.size(), 1) << "operator() consumed a task";
+}
+
+TEST(test_actuator, test_add_task_refuses_an_empty_callback) {
+  // The one hole the signature cannot close: bind_task's parameter makes a callback impossible to
+  // omit, not impossible to leave empty, and an empty std::function satisfies task_callback_for.
+  // Refused here, on the caller's own stack, rather than thrown from call_tasks() later -- where it
+  // would be recorded as a failure of a task whose action had in fact succeeded.
+  untangle::actuator<std::function<int(int)>> actuator;
+
+  auto one = untangle::bind_task(std::function<int(int)>([](int n) { return n; }), 1,
+                                 std::function<void(int)>{});
+  ASSERT_FALSE(static_cast<bool>(one.callback)) << "the callback under test is not actually empty";
+
+  const bool taken = actuator.add_task(std::move(one));
+
+  ASSERT_FALSE(taken) << "add_task took a task that can never notify";
+  ASSERT_TRUE(actuator.tasks.empty()) << "the refused task was stored anyway";
+}
+
+TEST(test_actuator, test_add_task_refuses_a_task_with_nothing_to_run) {
+  // The same rule from the other side. A hand-built task can hold a callback and no call, and it
+  // would throw std::bad_function_call out of call_tasks() exactly as an empty callback does.
+  untangle::actuator<std::function<int(int)>> actuator;
+
+  untangle::task<int> one;
+  one.callback = [](int) {};
+  ASSERT_FALSE(static_cast<bool>(one));
+
+  const bool taken = actuator.add_task(std::move(one));
+
+  ASSERT_FALSE(taken) << "add_task took a task with no action to run";
+  ASSERT_TRUE(actuator.tasks.empty());
+}
+
+TEST(test_actuator, test_a_refused_task_leaves_the_ones_already_held) {
+  // A refusal is about the task offered, not about the actuator: what it already holds is untouched
+  // and still runnable.
+  int reported = 0;
+  untangle::actuator<std::function<int(int)>> actuator;
+
+  ASSERT_TRUE(actuator.add_task(untangle::bind_task(
+      std::function<int(int)>([](int n) { return n * 2; }), 21,
+      std::function<void(int)>([&reported](int result) { reported = result; }))));
+
+  ASSERT_FALSE(actuator.add_task(untangle::bind_task(
+      std::function<int(int)>([](int n) { return n; }), 1, std::function<void(int)>{})));
+
+  ASSERT_EQ(actuator.tasks.size(), 1);
+  auto& kept = actuator.tasks.front();
+  kept.callback(kept());
+  ASSERT_EQ(reported, 42);
+}
+
+// --- tasks, step 4 -------------------------------------------------------------------------------
+// call_tasks() fires what add_task() holds: it runs each task, notifies its callback, records what
+// anything threw, and consumes the list. Two rules it does NOT share with operator():
+//
+//   - a task's result goes to its callback and nowhere else. actuator::results is how an action
+//     hands back what it returned; a task has a better way, and does not need both.
+//   - it appends to actuator::errors rather than clearing it, so an actuator fired as
+//     `one(); one.call_tasks();` reports both kinds together. operator() is the one that clears,
+//     so the actions go first - which is the order a queue built on this uses anyway.
+//
+// See todo/FEATURE_PLAN.md step 4.
+
+TEST(test_actuator, test_call_tasks_fires_every_task_and_notifies_each) {
+  // Each task reports its own result, and they run in the order they were added.
+  std::vector<int> reported;
+  untangle::actuator<std::function<int(int)>> actuator;
+  std::function<int(int)> action = [](int n) { return n * 10; };
+
+  for (int i = 1; i <= 3; ++i) {
+    ASSERT_TRUE(actuator.add_task(untangle::bind_task(
+        action, i, std::function<void(int)>([&reported](int r) { reported.push_back(r); }))));
+  }
+
+  actuator.call_tasks();
+
+  ASSERT_THAT(reported, testing::ElementsAre(10, 20, 30));
+}
+
+TEST(test_actuator, test_call_tasks_consumes_the_tasks) {
+  // A task is a one-shot. That is what lets the list need no remove().
+  int calls = 0;
+  untangle::actuator<std::function<int(int)>> actuator;
+
+  actuator.add_task(untangle::bind_task(std::function<int(int)>([&calls](int n) {
+                                          ++calls;
+                                          return n;
+                                        }),
+                                        1, std::function<void(int)>([](int) {})));
+
+  actuator.call_tasks();
+  ASSERT_EQ(calls, 1);
+  ASSERT_TRUE(actuator.tasks.empty()) << "call_tasks left the tasks it had already fired";
+
+  actuator.call_tasks();
+  ASSERT_EQ(calls, 1) << "a task ran twice";
+}
+
+TEST(test_actuator, test_call_tasks_notifies_a_void_task_with_nothing) {
+  // The half an action's callback convention has no answer for: finished is the whole message.
+  int ran = 0;
+  bool finished = false;
+  untangle::actuator<std::function<void(int)>> actuator;
+
+  actuator.add_task(untangle::bind_task(std::function<void(int)>([&ran](int by) { ran += by; }), 5,
+                                        std::function<void()>([&finished] { finished = true; })));
+
+  actuator.call_tasks();
+
+  ASSERT_EQ(ran, 5);
+  ASSERT_TRUE(finished) << "a void task finished without saying so";
+}
+
+TEST(test_actuator, test_a_task_that_throws_does_not_notify) {
+  // Finished does not mean failed. There is no result to report and no completion to report, so
+  // the callback is not invoked; what it threw goes to errors, and the tasks behind it still run.
+  bool notified = false;
+  bool later_ran = false;
+  untangle::actuator<std::function<int(int)>> actuator;
+
+  actuator.add_task(untangle::bind_task(
+      std::function<int(int)>([](int) -> int { throw std::runtime_error("task failed"); }), 1,
+      std::function<void(int)>([&notified](int) { notified = true; })));
+
+  actuator.add_task(untangle::bind_task(std::function<int(int)>([&later_ran](int n) {
+                                          later_ran = true;
+                                          return n;
+                                        }),
+                                        2, std::function<void(int)>([](int) {})));
+
+  actuator.call_tasks();
+
+  ASSERT_FALSE(notified) << "a task that threw reported as though it had finished";
+  ASSERT_TRUE(later_ran) << "one task throwing stopped the ones behind it";
+  ASSERT_EQ(actuator.errors.size(), 1);
+  EXPECT_THROW(std::rethrow_exception(actuator.errors.front()), std::runtime_error);
+}
+
+TEST(test_actuator, test_a_throwing_callback_is_recorded_like_any_other_failure) {
+  // The callback runs inside the same try as the task, so what it throws travels the same path --
+  // which means errors can hold a failure for a task whose action in fact succeeded. Surprising if
+  // unsaid, so it is said, here and in the reference.
+  int ran = 0;
+  untangle::actuator<std::function<int(int)>> actuator;
+
+  actuator.add_task(untangle::bind_task(
+      std::function<int(int)>([&ran](int n) {
+        ++ran;
+        return n;
+      }),
+      1, std::function<void(int)>([](int) { throw std::runtime_error("callback failed"); })));
+
+  actuator.call_tasks();
+
+  ASSERT_EQ(ran, 1) << "the task's own action did not run";
+  ASSERT_EQ(actuator.errors.size(), 1);
+  EXPECT_THROW(std::rethrow_exception(actuator.errors.front()), std::runtime_error);
+  ASSERT_TRUE(actuator.tasks.empty()) << "a task whose callback threw was left in the list";
+}
+
+TEST(test_actuator, test_a_task_result_is_delivered_only_to_its_callback) {
+  // actuator::results is how an ACTION hands back what it returned. A task hands its result to the
+  // callback it was built with, so it does not also grow the results list.
+  int reported = 0;
+  untangle::actuator<std::function<int(int)>> actuator;
+
+  actuator.add_task(
+      untangle::bind_task(std::function<int(int)>([](int n) { return n * 2; }), 21,
+                          std::function<void(int)>([&reported](int r) { reported = r; })));
+
+  actuator.call_tasks();
+
+  ASSERT_EQ(reported, 42);
+  ASSERT_TRUE(actuator.results.empty())
+      << "a task's result was collected as though it were an action's";
+}
+
+TEST(test_actuator, test_call_tasks_leaves_the_actions_alone) {
+  // The mirror of test_tasks_and_actions_live_side_by_side: operator() does not fire tasks, and
+  // call_tasks() does not fire actions.
+  int action_calls = 0;
+  int reported = 0;
+
+  std::function<int(int)> action = [&action_calls](int n) {
+    ++action_calls;
+    return n;
+  };
+
+  auto actuator = untangle::connect(action);
+  actuator.add_task(
+      untangle::bind_task(std::function<int(int)>([](int n) { return n; }), 7,
+                          std::function<void(int)>([&reported](int r) { reported = r; })));
+
+  actuator.call_tasks();
+
+  ASSERT_EQ(reported, 7);
+  ASSERT_EQ(action_calls, 0) << "call_tasks() fired an action; only operator() may";
+  ASSERT_TRUE(actuator.is_connected()) << "call_tasks() dropped the actions";
+}
+
+TEST(test_actuator, test_call_tasks_appends_to_errors_rather_than_clearing_them) {
+  // operator() clears errors and call_tasks() does not, so firing the actions first and the tasks
+  // second reports both kinds together. That is the order a queue built on this uses.
+  std::function<int(int)> throwing_action = [](int) -> int {
+    throw std::runtime_error("action failed");
+  };
+
+  auto actuator = untangle::connect(throwing_action);
+  actuator.add_task(untangle::bind_task(
+      std::function<int(int)>([](int) -> int { throw std::runtime_error("task failed"); }), 1,
+      std::function<void(int)>([](int) {})));
+
+  actuator(5);
+  ASSERT_EQ(actuator.errors.size(), 1) << "the action's failure was not recorded";
+
+  actuator.call_tasks();
+  ASSERT_EQ(actuator.errors.size(), 2) << "call_tasks() cleared what the actions had reported";
+}
+
+// --- tasks, step 6 -------------------------------------------------------------------------------
+// has_tasks() answers for the tasks, is_connected() for the actions, and neither answers for the
+// other. Decided 2026-09-25: is_connected() keeps its meaning exactly, because the attachment paths
+// in async read it and none of them will ever hold a task. A queue built on this asks has_tasks()
+// to decide whether its worker still has work. See todo/FEATURE_PLAN.md step 6.
+
+TEST(test_actuator, test_has_tasks_answers_for_the_tasks_alone) {
+  untangle::actuator<std::function<int(int)>> actuator;
+  ASSERT_FALSE(actuator.has_tasks());
+
+  ASSERT_TRUE(actuator.add_task(untangle::bind_task(
+      std::function<int(int)>([](int n) { return n; }), 1, std::function<void(int)>([](int) {}))));
+  ASSERT_TRUE(actuator.has_tasks());
+
+  actuator.call_tasks();
+  ASSERT_FALSE(actuator.has_tasks()) << "has_tasks() still reported work after call_tasks()";
+}
+
+TEST(test_actuator, test_has_tasks_and_is_connected_are_not_the_same_question) {
+  // All four combinations, because a queue reading the wrong one either parks with work still
+  // queued or spins on an actuator that has nothing to do.
+  std::function<int(int)> action = [](int n) { return n; };
+  auto task_of = [&action] {
+    return untangle::bind_task(action, 1, std::function<void(int)>([](int) {}));
+  };
+
+  untangle::actuator<std::function<int(int)>> neither;
+  EXPECT_FALSE(neither.has_tasks());
+  EXPECT_FALSE(neither.is_connected());
+
+  untangle::actuator<std::function<int(int)>> tasks_only;
+  tasks_only.add_task(task_of());
+  EXPECT_TRUE(tasks_only.has_tasks());
+  EXPECT_FALSE(tasks_only.is_connected()) << "a task made the actuator look connected";
+
+  auto actions_only = untangle::connect(action);
+  EXPECT_FALSE(actions_only.has_tasks());
+  EXPECT_TRUE(actions_only.is_connected());
+
+  auto both = untangle::connect(action);
+  both.add_task(task_of());
+  EXPECT_TRUE(both.has_tasks());
+  EXPECT_TRUE(both.is_connected());
+}
+
+TEST(test_actuator, test_is_connected_is_unmoved_by_tasks) {
+  // The decision behind step 6, stated: adding, holding and firing tasks never changes what
+  // is_connected() says, so async's attachment paths keep reading the answer they always read.
+  std::function<int(int)> action = [](int n) { return n; };
+  auto actuator = untangle::connect(action);
+
+  ASSERT_TRUE(actuator.is_connected());
+
+  actuator.add_task(untangle::bind_task(action, 1, std::function<void(int)>([](int) {})));
+  ASSERT_TRUE(actuator.is_connected());
+
+  actuator.call_tasks();
+  ASSERT_TRUE(actuator.is_connected()) << "firing the tasks disconnected the actions";
+}
+
+TEST(test_actuator, test_a_refused_task_does_not_make_has_tasks_true) {
+  // add_task() answering false means the task is gone, so nothing is waiting to be fired.
+  untangle::actuator<std::function<int(int)>> actuator;
+
+  ASSERT_FALSE(actuator.add_task(untangle::bind_task(
+      std::function<int(int)>([](int n) { return n; }), 1, std::function<void(int)>{})));
+
+  ASSERT_FALSE(actuator.has_tasks()) << "a refused task left the actuator claiming work";
+}
+
 }  // namespace untangle::test

@@ -11,8 +11,10 @@ reports that it finished. A task returning nothing reports with a `void()` callb
 the message, the result is optional. The callback is the **last argument of `bind_task()`**, taken
 by position rather than recognised by type, and it is **not** forwarded to the action.
 
-**Status (2026-09-25) — step 1 is done, 70 of 70 green. Three probes run; one step closed as
-declined, one deleted, two struck.**
+**Status (2026-09-25) — CLOSED. Committed as `1e52939`: steps 1, 2, 3, 4, 6 and 7 done, 99 of 99
+green.
+Four probes run; one step closed as declined, one deleted, two struck, two claims corrected. No
+decision left open.**
 This is a feature plan, not a fix plan: no step below is a defect in code meant to do something
 else. It has one defect at its root all the same — the callback convention does not survive being
 queued — and that is why the feature is worth having rather than a tidier spelling of what exists.
@@ -225,13 +227,13 @@ check, not a type one — and that is the one hole the parameter cannot close by
 
 | # | Step | Sites | Evidence |
 |---|---|---|---|
-| 1 ✅ | `task_callback_for`, `task_callback_type` and `task<result_t>` | `:63-163` | CONFIRMED (7 cases) — **DONE**, hash pending |
-| 2 | `untangle::bind_task(action, args..., callback)` — the pack split | new, beside `last_arg` `:55` | PROBED |
-| 3 | `tasks` storage and `add_task()`, and what it does with an empty callback | new, beside `:141-153` | read-only |
-| 4 | `call_tasks()` — fire, notify, record, consume | new, mirrors `:349-390` | read-only |
+| 1 ✅ | `task_callback_for`, `task_callback_type` and `task<result_t>` | `:63-162` | CONFIRMED (7 cases) — **DONE** (`1e52939`) |
+| 2 ✅ | `untangle::bind_task(action, args..., callback)` — the pack split | `:166-226` | CONFIRMED (8 cases) — **DONE** (`1e52939`) |
+| 3 ✅ | `tasks` storage and `add_task()`, refusing an empty callback | `:291-301`, `:323-329`, `:697-731` | CONFIRMED (9 cases) — **DONE** (`1e52939`) |
+| 4 ✅ | `call_tasks()` — fire, notify, record, consume | `:638-693` | CONFIRMED (8 cases) — **DONE** (`1e52939`) |
 | 5 ✅ | `operator()()` with no arguments | — | PROBED — **DECLINED** |
-| 6 | `is_connected()` vs a new `has_tasks()` | `:552` | **OPEN, decision** |
-| 7 | `tools/make_doc.sh`, and the bump async takes | `doc/` | — |
+| 6 ✅ | `has_tasks()`, `is_connected()` untouched | `:827-857` | CONFIRMED (4 cases) — **DONE** (`1e52939`) |
+| 7 ✅ | `README.md`, `tools/make_doc.sh`, and the commits | `README.md`, `doc/` | **DONE** (`1e52939`) |
 
 ### Step 1 ✅ · `task_callback_for`, `task_callback_type`, `task<result_t>` — DONE
 
@@ -249,9 +251,9 @@ than recognised by type, and admitted `void()`, the two rules stopped being the 
 `task_callback_for` is therefore task-only, and `invoke_callback()` is not touched by this plan at
 all. Anything in the actions path that looks like this feature is coincidence.
 
-**What landed**, at `actuator.hpp:63-163`, +101 lines and nothing removed: the concept, the
+**What landed**, at `actuator.hpp:63-162`, +101 lines and nothing removed: the concept, the
 `task_callback_type` specialisation, and `task<result_t>` with its `callback_t`, `result_type`,
-`operator()` and `explicit operator bool`. Seven cases at `test/actuator_test.cpp:1321-1444`. 70 of
+`operator()` and `explicit operator bool`. Seven cases at `test/actuator_test.cpp:1321-1442`. 70 of
 70 green, clang-format clean, doxygen clean, `doc/refman.pdf` at 51 pages.
 
 **`std::conditional_t` cannot express `callback_t`, and step 1's own case is what found it.**
@@ -282,54 +284,185 @@ unreported.
 warnings-as-errors here, and `bind_task()`, `actuator::add_task()` and `actuator::call_tasks()` do
 not exist yet, so the header names them in code font instead of `\ref`. **Step 2 owes the `\ref`
 for `bind_task()`, step 3 for `add_task()`, step 4 for `call_tasks()`** — turning each into a link
-as the symbol arrives. `\ref actuator` was demoted too, from the concept's own block, and that one
-is unexplained rather than solved: the identical spelling resolves at `:377` and `:439`, so a
-concept's documentation block evidently scopes differently, but the reason was not chased.
+as the symbol arrives. `\ref actuator` was demoted too, from the concept's own block, for what
+looked at the time like a different and unexplained reason. **Step 2 explained it — see below: a
+`\ref` from inside a concept's block never resolves**, so that one is not a debt and never becomes
+a link.
 
-> **`actuator.hpp` is committed with CRLF line endings and `test/actuator_test.cpp` with LF.** Any
-> tool that rewrites a whole file — clang-format included — flips them silently, and the diff then
-> shows every line of the file as changed: 870 removed, 970 added, for a hundred lines of new code.
-> `git diff --ignore-all-space` is what tells the two apart. Check it against the plain diff after
-> every edit in this repo.
+> **`actuator.hpp` is committed with CRLF line endings and `test/actuator_test.cpp` with LF**, and
+> mixing them up shows every line of the file as changed: 870 removed and 970 added, for a hundred
+> lines of new code. `git diff --ignore-all-space` against the plain diff is what tells the two
+> apart, and it is worth running after every edit here.
+>
+> **Corrected at step 2: clang-format is not the culprit, and this plan said it was.** `.clang-format`
+> carries `LineEnding: DeriveCRLF`, with a comment saying the sources are CRLF and this keeps them
+> that way. What flattened the file was writing it from Python in text mode, which emits LF;
+> clang-format then derived from an already flattened file and kept it flat. **Write the header as
+> bytes, or let clang-format finish the job** — do not blame the formatter for it again.
 
-### Step 3 · the hole the signature cannot close
+### Step 2 ✅ · `bind_task(action, args..., callback)` — DONE
 
-The parameter makes a callback impossible to *omit*. It does not make it impossible to pass an
-empty `std::function`, which satisfies the concept and then throws `std::bad_function_call` when
-`call_tasks()` fires it — inside the actuator's `try`, so it would surface as a task failure on the
-`errors` path, blaming the task for the caller's mistake.
+`actuator.hpp:166-226`, +64 lines and nothing removed. Eight cases at
+`test/actuator_test.cpp:1444-1579`. 78 of 78 green, clang-format clean, doxygen clean,
+`doc/refman.pdf` at 53 pages.
+
+**The pack is indexed rather than folded**, which is the one part of the implementation that is not
+obvious: everything but the last element is bound, and a fold expression cannot say "all but the
+last". So the arguments arrive as a `std::forward_as_tuple` of references, a templated lambda takes
+`std::index_sequence<i...>` over `sizeof...(Args) - 1`, and each `std::get<i>` is **copied** into
+the closure. `std::get<last>` is the callback.
+
+**Two `static_assert`s carry what the signature cannot say**, since the callback is inside the pack:
+one that there is at least one argument, one that the last satisfies \ref task_callback_for. Neither
+can be a test case — a compile error is not a runtime failure — so they are contract, and their
+wording is the diagnostic a caller actually meets.
+
+**A `\ref` from inside a concept's documentation block never resolves.** Step 1 saw `\ref actuator`
+fail there and left it unexplained; step 2 reproduced it exactly with `\ref bind_task()`, which
+resolves from `task`'s block and from `bind_task`'s own and fails only from the concept's. Two data
+points, one rule: **inside a concept, name symbols in code font.** Not a debt against a later step,
+because it never becomes a link.
+
+**And doxygen swallows a trailing colon into the symbol name.** `\ref task:` was read as a reference
+to a symbol called `task:`. Ending the sentence instead of running a colon onto the reference is the
+whole fix, and it is the kind of warning that reads as a missing symbol when it is really
+punctuation.
+
+**What is left to a later step by design:** nothing here fires a callback. Every case notifies by
+hand and asserts that `task::operator()` alone does **not** — \ref actuator::call_tasks() is step 4,
+and a case that leaned on it would be testing two steps at once.
+
+> **A move-only argument does not compile**, because each bound argument is copied. Raised while
+> reviewing the cases and left as contract rather than a case, since refusing at compile time is
+> not something a runtime case can state. It is the same limitation `executor::add_task()` has
+> today, so the chain does not regress; if it ever needs lifting, it is `bind_task` that lifts it.
+
+### Step 3 ✅ · `tasks` storage and `add_task()` — DONE
+
+`actuator.hpp:291-301` (the container type), `:323-329` (the member), `:424-426` (`copy_from`),
+`:697-731` (`add_task()`). Nine cases at `test/actuator_test.cpp:1581-1702`. 87 of 87 green,
+clang-format clean, doxygen clean, `doc/refman.pdf` at 58 pages.
+
+**The empty callback: route one, decided 2026-09-25.** The parameter makes a callback impossible to
+*omit*; it does not make it impossible to pass an empty `std::function`, which satisfies
+`task_callback_for` and then throws `std::bad_function_call` when it is fired. Three routes were
+weighed:
 
 | Route | Cost |
 |---|---|
-| `add_task()` refuses an empty callback, returning `false` or throwing | a runtime check on a rule the signature otherwise enforces statically; the caller learns at the right moment |
+| **Taken:** `add_task()` refuses it and answers `false` | a runtime check on a rule the signature otherwise enforces statically; the caller learns while still on their own stack |
 | Let it reach `call_tasks()` and become an error | no new code; the report names the wrong culprit |
 | Ignore it | a task that silently never notifies, which is the defect this whole plan exists to remove |
 
-Not decided. It is the only place the required-callback rule is not enforced by the type system.
+**What settled it was a probe of the actions path, not a preference.** Asked how an empty callback
+behaves there today, the answer turned out to be neither "ignored" nor "thrown":
 
-### Step 4 · what `call_tasks()` promises
+```
+callback is empty: yes
+operator() returned normally
+results: 1 (front = 7)
+errors:  1
+  recorded: std::bad_function_call
+action still connected: yes
+```
 
-Four rules, all worth stating in the reference rather than leaving to be inferred:
+The action runs, its result is collected, and the empty callback's throw is caught by
+`operator()`'s `catch (...)` and filed in actuator::errors. **So the existing behaviour is route
+two** — and seeing it is what made route one the right answer for tasks rather than merely the
+stricter one. The two situations differ in *when* the caller finds out: an action's callback is
+optional and bites during the very call the caller made, while a task's is the point and would bite
+inside `call_tasks()`, on a worker thread, arbitrarily later, as a failure recorded against a task
+whose action had in fact succeeded. `add_task()` is the last moment the caller is still on the
+stack, and the check is one `if`.
+
+**Both halves are refused, not just the callback.** A hand-built task can carry a callback and no
+`call`, and it throws `std::bad_function_call` out of `call_tasks()` in exactly the same way. The
+guard is `if (!task || !task.callback)`. If only the callback should be guarded, it is that `!task ||`
+and one case.
+
+**`copy_from()` had to be told about tasks, and would have lost them in silence otherwise.** It
+copies `owned`, `actions`, `actions_map`, `results` and `errors` **by hand** rather than defaulting,
+so a member it does not name is simply dropped from every copy — a copied actuator would look like
+one with nothing to do. Move is `= default`, so tasks ride along for free; asserted rather than
+assumed, in `test_moving_an_actuator_carries_its_tasks`.
+
+**No `remove()`, no named form, and that is the design rather than an omission.** An action is
+stored by pointer because `remove()` needs identity and two `std::function`s cannot be compared; a
+task is consumed by `call_tasks()` and never identified again. `actions_map` exists so
+`invoke_action()` can fire one action on demand; tasks are fired as a batch, in the order they were
+added.
+
+**The strongest case here is `test_tasks_and_actions_live_side_by_side`**, which states the whole
+two-kinds design in one place: after `actuator(5)` the action has run and its result is collected,
+and the task has not run, has not notified, and is still in the list. Nothing in this step may
+anticipate step 4.
+
+> **Step 4 owes six `\ref call_tasks()`.** They are referenced from `tasks_t`, from `tasks`, from
+> `add_task()` and from \ref task itself, all demoted to code font because the member does not
+> exist yet. A bigger debt than the earlier ones, and the last of them.
+
+> **Asked, and recorded outside this plan: could `add()` for actions be hardened the same way?**
+> It is the same argument — the caller is still on the stack — but it changes the return type of a
+> public API with callers in `async.hpp` and both suites, and `add(action_t&&)`'s handle return has
+> nowhere to put a `false`. Deliberately not done here; let tasks prove the pattern, then raise it
+> as its own step. The empty *callback* half is the sharper one and may be worth doing alone.
+
+### Step 4 ✅ · `call_tasks()` — DONE
+
+`actuator.hpp:638-693`. Eight cases at `test/actuator_test.cpp:1755-1921`. 95 of 95 green,
+clang-format clean, doxygen clean, `doc/refman.pdf` at 58 pages.
+
+**Six rules, all in the reference rather than left to be inferred.** The first four were written
+before the step; the last two were settled by the cases, and are the ones this plan had left
+implicit.
 
 - **The callback always fires** on a task that returns normally. There is no `if` — that is what
   required means, and it is the one promise a caller gets from a task that an action never gave.
 - **Finished does not mean failed. Decided 2026-09-25.** A task whose action throws gets no
-  callback: there is no result to report, and for a void task there is no completion to report
-  either. What it threw travels the existing `errors` path to `on_error`, unchanged. **Document it
-  as a choice, not an omission** — a caller who reads "a task always notifies" will otherwise
-  assume it notifies here too. Revisit if a use case asks for it; an `exception_ptr` overload is
-  the obvious shape and nothing here forecloses it.
-- **A throwing callback lands in `errors`**, because it runs inside the actuator's existing `try`.
-  It is the same path a failing action takes, which means a handler upstream can fire for a task
-  whose body succeeded. Uniform, and surprising if unsaid.
-- **`call_tasks()` consumes.** Each task fires once and the list is empty afterwards. That is the
-  one-shot half of the action/task distinction, and it is what removes the need for `remove()`.
+  callback: there is no result to report, and for a void task no completion either. What it threw
+  goes to actuator::errors. **Documented as a choice, not an omission** — a caller who reads "a task
+  always notifies" will otherwise assume it notifies here too. Revisit if a use case asks; an
+  `exception_ptr` overload is the obvious shape and nothing forecloses it.
+- **A throwing callback lands in `errors`**, because it runs inside the same `try` as the task that
+  owns it. So `errors` can hold a failure for a task whose action in fact succeeded. **The task is
+  consumed either way**: re-running an action that already ran, to reach a callback that already
+  threw, would be worse than losing the notification.
+- **`call_tasks()` consumes.** Each task fires once and the list is empty afterwards — the one-shot
+  half of the action/task distinction, and what removes the need for `remove()`.
+- **A task's result goes to its callback and nowhere else.** actuator::results is how an *action*
+  hands back what it returned; a task was built with something better and does not need both. It
+  also keeps `results` meaning one thing.
+- **Errors are appended, not written over.** `operator()` clears both lists as it starts and this
+  clears neither, so an actuator fired as `one(); one.call_tasks();` reports both kinds together —
+  which means **the actions go first**. The other order loses what the tasks recorded. This is the
+  order async's drain uses anyway, so the constraint costs nothing; had `call_tasks()` cleared, that
+  drain would have wiped the actions' results before reporting them.
 
-**Its cases carry what no earlier step can.** Everything up to here is one kind at a time; this is
-where an actuator holds both and the two have to coexist: a batch of actions and tasks together,
-fired by `operator()` and then `call_tasks()`, with `results` and `errors` carrying entries from
-both and in an order a caller can rely on. Struck step 7 was reaching for these — they belong to the
-step that makes the combination observable, not to a suite step at the end.
+**Two implementation choices that are not obvious from the rules.**
+
+*The list is taken by swap rather than iterated in place.* A callback that adds a task adds it to
+the **next** pass. Iterating the member would let a task that re-adds itself keep the loop from
+ever ending — and it is the same reason a queue built on this takes its batch by move, so the two
+layers agree rather than merely coexist.
+
+*`one.callback(one())` is one expression on purpose*, so the result is handed over as an rvalue.
+Split into `auto result = one(); one.callback(result);` it would pass an lvalue to a
+`std::function<void(R)>` that takes `R` by value, and a result type that cannot be copied would
+stop being reportable at all.
+
+**The cases carry what no earlier step could**, which is the two kinds in one actuator:
+`test_call_tasks_leaves_the_actions_alone` mirrors step 3's `test_tasks_and_actions_live_side_by_side`,
+and `test_call_tasks_appends_to_errors_rather_than_clearing_them` states the ordering rule in the
+only place it is observable. Struck step 7 was reaching for exactly these.
+
+**The six `\ref call_tasks()` debts from steps 1 to 3 are paid.** Nothing in the header now names a
+symbol that does not exist.
+
+> **One unexplained doc failure, not reproduced.** The first `tools/make_doc.sh` of this step died
+> in LaTeX pass 1 — "the XeTeX engine had an unrecoverable error" — and three runs since, one
+> verbose and two plain, have all written the same 58-page PDF with nothing changed in between. Not
+> called fixed, because it was never diagnosed. If it recurs, `-v` prints the TeX warnings; the
+> script cleans up its intermediates, which is why there is no `refman.log` to read afterwards.
 
 ### Step 5 ✅ · `operator()()` with no arguments — DECLINED
 
@@ -369,21 +502,82 @@ argument list, which nobody would write.
 "fire the actions, **then** the tasks" — a superset that leaves those four sites doing what they do
 today. Not "fire the tasks".
 
-### Step 6 · `is_connected()` or `has_tasks()` — OPEN
+### Step 6 ✅ · `has_tasks()`, and `is_connected()` left alone — DONE
 
-`is_connected()` (`:552`) answers from `actions` and `actions_map`. `async::has_pending_actions()`
-(`async.hpp:686`) reads it, and after async's step 1 the queue holds tasks and no actions — so left
-alone, a queue full of tasks reports itself empty and the drain breaks.
+`actuator.hpp:827-857`. Four cases at `test/actuator_test.cpp:1923-1991`. 99 of 99 green,
+clang-format clean, doxygen clean, `doc/refman.pdf` at 60 pages.
+
+**Decided 2026-09-25: add `has_tasks()`, keep `is_connected()` exactly as it is.**
 
 | Route | Cost |
 |---|---|
 | Extend `is_connected()` to include tasks | arguably correct — "does this actuator hold anything" — but it is also read by the attachment paths, so the meaning changes for callers that will never hold a task |
-| Add `has_tasks()`, point `has_pending_actions()` at it | two predicates to keep straight; `is_connected()` keeps its current meaning exactly |
+| **Taken:** add `has_tasks()`, and let a queue read that | two predicates to keep straight; `is_connected()` keeps its current meaning exactly |
 
-Not decided. One line either way, and a deliberate one rather than a drive-by. **It gates async's
-step 4.**
+**What the second route buys is that nothing already written changes its answer.**
+`async::has_pending_actions()` (`async.hpp:686`) reads `is_connected()`, and so do the attachment
+paths — `attach()`, `detach()`, `execution_poll`. None of those will ever hold a task. Extending
+`is_connected()` would have changed what all of them are told in order to fix one caller, and the
+one caller can simply ask the right question instead.
 
-### Struck — "the suite gains tasks"
+**The failure it prevents is the one async's step 3 was blocked on**: a queue reading
+`is_connected()` to decide whether its worker still has work would report a batch of tasks as
+nothing to do, break out of the drain, and leave the tasks unfired with the worker parked on its
+condition variable.
+
+**The case that earns its keep is `test_has_tasks_and_is_connected_are_not_the_same_question`**,
+which asserts all four combinations — neither, tasks only, actions only, both. `tasks_only` is the
+one that matters: `has_tasks()` true and `is_connected()` **false**. A queue reading the wrong
+predicate either parks with work queued or spins on an actuator with nothing to do, and that is the
+combination where it shows. `test_is_connected_is_unmoved_by_tasks` states the decision itself:
+adding, holding and firing tasks never move that answer.
+
+**`is_connected()` gained a remark and not a line of code**, saying it answers for the actions and
+nothing else and pointing at \ref has_tasks(). The distinction is only obvious once both exist.
+
+### Step 7 ✅ · the reference and the commits — DONE
+
+**Done: `README.md` and `doc/refman.pdf`.** The reference PDF was rebuilt at every step rather than
+once at the end, so it never drifted; it is at 62 pages, from 51 when step 1 started. `README.md`
+gained a tasks section, because it documents the surface and a whole new kind of thing had appeared
+in it — what a task is against an action, the callback being last and required, `void()` for a void
+task, arguments copied at bind time, `add_task()` answering `bool`, finished not meaning failed,
+and `has_tasks()` against `is_connected()`.
+
+**Done: the commits — as one, `1e52939`.** Steps 1, 2, 3, 4 and 6 landed together, with the header,
+the 36 cases, `README.md` and the reference.
+
+> **One step per commit is what the method says, and this is not that.** The question was left open
+> above and has been answered by what happened: the six steps arrived as one commit, because each
+> was reviewed at its **red test** rather than at its commit, so the review the rule protects had
+> already taken place five times over. Splitting afterwards would have meant carving six commits out
+> of one tree with `git add -p`, for a history nobody reviewed in that shape.
+>
+> **What it costs is bisect granularity**, and it is worth naming: a defect in the mechanism now
+> bisects to one commit of 977 added lines rather than to the step that introduced it. The step
+> index above is what stands in for that, since every step names its own sites and its own cases.
+>
+> **async and `executor` will arrive the same way** unless decided otherwise, so this is the
+> precedent rather than an exception.
+
+**The bump was never this repo's, and listing it here was the error that kept this step open.**
+`async` records the actuator's commit in `async`'s own tree, so moving that pointer is a change to
+`async`, made in `async`, and its plan has owned it all along — its step 7, "`tools/make_doc.sh`,
+the actuator bump, and the bump `executor` takes". Struck from here rather than tracked in two
+places; a step that waits on another repo's commit can never close on its own terms.
+
+> **This plan is itself inside `1e52939`**, so the hashes above were written after the fact, by the
+> `chore: update feature plan` that follows it — as the method says, a commit cannot record its own
+> hash.
+>
+> **And they were written twice.** The first set said `2bd224a`, which an amend — adding the body to
+> the commit message — rewrote into `1e52939`, leaving eleven citations pointing at a commit no
+> branch reached any more. The rule the method already has is not quite enough: **record the hash
+> once the commit is final**, amends included, or expect to write it again. `executor`'s
+> `FIX_PLAN.md` learned the same thing at `bf7739b`, which became `4c1cba6` under an amend and left
+> three dangling references behind it.
+
+
 
 **Withdrawn 2026-09-25.** It listed the suite as a step of its own, which contradicts the working
 method this plan inherits: *a step's case travels with its own fix*. Step 1 had already demonstrated
@@ -446,8 +640,12 @@ with its own fix. The plan's own updates are their own commit, and always a late
 
 | Commit | Step |
 |---|---|
-| hash pending | 1 — `task_callback_for`, `task_callback_type`, `task<result_t>`, and 7 cases |
+| `1e52939` | 1, 2, 3, 4 and 6 — the whole mechanism, 36 cases, README and the reference |
 
-**NEXT: step 2**, `bind_task()`, and it carries the `\ref bind_task()` step 1 could not write.
-Step 5 is already answered. Two decisions stay open: step 3 — what `add_task()` does with an empty
-callback — and step 6, which gates async's step 3.
+**CLOSED.** Every step is done, declined or struck, and all of it is in `1e52939`. 99 of 99 green,
+clang-format clean, doxygen clean, `README.md` and `doc/refman.pdf` current. Nothing in this repo is
+outstanding and nothing here blocks anything.
+
+**NEXT is async's step 1**, which this repo no longer gates — its step 6 answered the predicate
+question. Read async's step 5 first, on the `bind_action_and_method()` wrapper, and its step 4, on
+what `is_busy()` and `on_finished` mean once a pass can run only tasks.
