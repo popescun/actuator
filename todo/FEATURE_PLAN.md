@@ -231,8 +231,7 @@ check, not a type one — and that is the one hole the parameter cannot close by
 | 4 | `call_tasks()` — fire, notify, record, consume | new, mirrors `:349-390` | read-only |
 | 5 ✅ | `operator()()` with no arguments | — | PROBED — **DECLINED** |
 | 6 | `is_connected()` vs a new `has_tasks()` | `:552` | **OPEN, decision** |
-| 7 | the suite gains tasks | `test/actuator_test.cpp` | — |
-| 8 | `tools/make_doc.sh`, and the bump async takes | `doc/` | — |
+| 7 | `tools/make_doc.sh`, and the bump async takes | `doc/` | — |
 
 ### Step 1 · the two rules are different, so they do not share a concept
 
@@ -282,6 +281,12 @@ Four rules, all worth stating in the reference rather than leaving to be inferre
   whose body succeeded. Uniform, and surprising if unsaid.
 - **`call_tasks()` consumes.** Each task fires once and the list is empty afterwards. That is the
   one-shot half of the action/task distinction, and it is what removes the need for `remove()`.
+
+**Its cases carry what no earlier step can.** Everything up to here is one kind at a time; this is
+where an actuator holds both and the two have to coexist: a batch of actions and tasks together,
+fired by `operator()` and then `call_tasks()`, with `results` and `errors` carrying entries from
+both and in an order a caller can rely on. Struck step 7 was reaching for these — they belong to the
+step that makes the combination observable, not to a suite step at the end.
 
 ### Step 5 ✅ · `operator()()` with no arguments — DECLINED
 
@@ -334,6 +339,19 @@ alone, a queue full of tasks reports itself empty and the drain breaks.
 
 Not decided. One line either way, and a deliberate one rather than a drive-by. **It gates async's
 step 4.**
+
+### Struck — "the suite gains tasks"
+
+**Withdrawn 2026-09-25.** It listed the suite as a step of its own, which contradicts the working
+method this plan inherits: *a step's case travels with its own fix*. Step 1 had already demonstrated
+it — seven cases in the tree, red, before a line of the concept existed — so a later step collecting
+"the tests" would either duplicate them or imply the earlier steps had shipped without any.
+
+**What it was reaching for is real and belongs elsewhere:** the cases that cannot be attached to a
+single step, because they are about tasks and actions in one actuator — a batch holding both, fired
+by `operator()` and then `call_tasks()`, with `results` and `errors` carrying entries from both. That
+is step 4's, since `call_tasks()` is what makes the combination observable, and it is recorded there
+rather than deferred to a suite step.
 
 ### Struck — "the actions path has never been tested"
 
