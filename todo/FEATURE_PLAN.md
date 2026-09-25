@@ -11,8 +11,8 @@ reports that it finished. A task returning nothing reports with a `void()` callb
 the message, the result is optional. The callback is the **last argument of `bind_task()`**, taken
 by position rather than recognised by type, and it is **not** forwarded to the action.
 
-**Status (2026-09-25) — step 1's cases written and red, three probes run, one step closed as
-declined, one deleted, one struck as false.**
+**Status (2026-09-25) — step 1 is done, 70 of 70 green. Three probes run; one step closed as
+declined, one deleted, two struck.**
 This is a feature plan, not a fix plan: no step below is a defect in code meant to do something
 else. It has one defect at its root all the same — the callback convention does not survive being
 queued — and that is why the feature is worth having rather than a tidier spelling of what exists.
@@ -225,7 +225,7 @@ check, not a type one — and that is the one hole the parameter cannot close by
 
 | # | Step | Sites | Evidence |
 |---|---|---|---|
-| 1 | `task_callback_for`, `task_callback_type` and `task<result_t>` | new | PROBED (void needs a specialisation) — **7 cases written, red** |
+| 1 ✅ | `task_callback_for`, `task_callback_type` and `task<result_t>` | `:63-163` | CONFIRMED (7 cases) — **DONE**, hash pending |
 | 2 | `untangle::bind_task(action, args..., callback)` — the pack split | new, beside `last_arg` `:55` | PROBED |
 | 3 | `tasks` storage and `add_task()`, and what it does with an empty callback | new, beside `:141-153` | read-only |
 | 4 | `call_tasks()` — fire, notify, record, consume | new, mirrors `:349-390` | read-only |
@@ -233,7 +233,7 @@ check, not a type one — and that is the one hole the parameter cannot close by
 | 6 | `is_connected()` vs a new `has_tasks()` | `:552` | **OPEN, decision** |
 | 7 | `tools/make_doc.sh`, and the bump async takes | `doc/` | — |
 
-### Step 1 · the two rules are different, so they do not share a concept
+### Step 1 ✅ · `task_callback_for`, `task_callback_type`, `task<result_t>` — DONE
 
 An earlier draft had one concept serving both paths, with `invoke_callback()` (`:327`) rewritten
 onto it. **That step is gone.** Once a task's callback became required, taken by position rather
@@ -248,6 +248,49 @@ than recognised by type, and admitted `void()`, the two rules stopped being the 
 
 `task_callback_for` is therefore task-only, and `invoke_callback()` is not touched by this plan at
 all. Anything in the actions path that looks like this feature is coincidence.
+
+**What landed**, at `actuator.hpp:63-163`, +101 lines and nothing removed: the concept, the
+`task_callback_type` specialisation, and `task<result_t>` with its `callback_t`, `result_type`,
+`operator()` and `explicit operator bool`. Seven cases at `test/actuator_test.cpp:1321-1444`. 70 of
+70 green, clang-format clean, doxygen clean, `doc/refman.pdf` at 51 pages.
+
+**`std::conditional_t` cannot express `callback_t`, and step 1's own case is what found it.**
+`test_task_names_the_callback_type_its_result_needs` asserts `task<void>::callback_t` is
+`std::function<void()>`, and the obvious spelling
+
+```c++
+using callback_t = std::conditional_t<std::is_void_v<result_t>,
+                                      std::function<void()>, std::function<void(result_t)>>;
+```
+
+does not compile for `void` at all: `error: argument may not have 'void' type`. conditional_t forms
+**both** branches before choosing one, and `std::function<void(result_t)>` with `result_t = void` is
+ill formed — a parameter of type void cannot be produced by substitution, however legal `void(void)`
+is as literal syntax. A specialisation never forms the branch it does not take. **The test was
+written before the code and falsified the plan's own sketch**, which is the method earning its keep
+rather than a near miss.
+
+**The disjuncts are ordered for the formatter, not for logic.** clang-format rendered the void case
+first with the `||` buried mid-line, which lost the parallel between the two alternatives; asking
+for the result first renders each on its own line. Satisfaction is identical either way. The doc
+remark therefore names the disjuncts by what they ask rather than by position, so a future reorder
+cannot falsify it — and it records that the `std::is_void_v` guard is load bearing: without it a
+`std::function<void()>` satisfies the concept for **any** result type, and a task's result would go
+unreported.
+
+**Three forward references are demoted, and each is a debt against a later step.** doxygen is
+warnings-as-errors here, and `bind_task()`, `actuator::add_task()` and `actuator::call_tasks()` do
+not exist yet, so the header names them in code font instead of `\ref`. **Step 2 owes the `\ref`
+for `bind_task()`, step 3 for `add_task()`, step 4 for `call_tasks()`** — turning each into a link
+as the symbol arrives. `\ref actuator` was demoted too, from the concept's own block, and that one
+is unexplained rather than solved: the identical spelling resolves at `:377` and `:439`, so a
+concept's documentation block evidently scopes differently, but the reason was not chased.
+
+> **`actuator.hpp` is committed with CRLF line endings and `test/actuator_test.cpp` with LF.** Any
+> tool that rewrites a whole file — clang-format included — flips them silently, and the diff then
+> shows every line of the file as changed: 870 removed, 970 added, for a hundred lines of new code.
+> `git diff --ignore-all-space` is what tells the two apart. Check it against the plain diff after
+> every edit in this repo.
 
 ### Step 3 · the hole the signature cannot close
 
@@ -403,7 +446,8 @@ with its own fix. The plan's own updates are their own commit, and always a late
 
 | Commit | Step |
 |---|---|
-| — | nothing landed |
+| hash pending | 1 — `task_callback_for`, `task_callback_type`, `task<result_t>`, and 7 cases |
 
-**NEXT: step 1.** Step 5 is already answered. Two decisions are open: step 3 — what `add_task()`
-does with an empty callback — and step 6, which gates async.
+**NEXT: step 2**, `bind_task()`, and it carries the `\ref bind_task()` step 1 could not write.
+Step 5 is already answered. Two decisions stay open: step 3 — what `add_task()` does with an empty
+callback — and step 6, which gates async's step 3.
