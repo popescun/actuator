@@ -15,6 +15,23 @@ by position rather than recognised by type, and it is **not** forwarded to the a
 green.
 Four probes run; one step closed as declined, one deleted, two struck, two claims corrected. No
 decision left open.**
+
+**Superseded in part (2026-09-28) — the task's *representation* changed; nothing about what a task
+*is* did.** `task<result_t>`, which carried a `call` and a `callback` side by side, and
+`task_callback_type`, which named the callback's type, are gone. A task is now
+`using task = std::function<void()>` — the action, its arguments and its callback sealed into one
+nullary callable, which notifies itself when it runs. `bind_task()` keeps its name, its signature
+and both static_asserts; `task_callback_for` is untouched. What moved: the empty-callback and
+empty-action refusals, which `add_task()` can no longer see, so `bind_task()` returns an empty task
+and `add_task()` refuses it on the one test it can still make. What it buys: `call_tasks()` loses
+its void/non-void arms, the tasks list no longer names a result type, one list holds tasks built
+from unrelated actions, and any nullary void callable is a task. 106 of 106 green, 0 doxygen
+warnings. Every step-4 test passed unchanged, which is the evidence the contract survived. Three
+claims below are marked where they now misdescribe the code. **async and `executor` are not yet
+adapted**: `executor.hpp:239` destructures `built.call`/`built.callback`, its `task_call` uses
+`untangle::task_callback_type` and reads callback emptiness as its action-vs-task discriminator
+(`:344`, `:420`), and `async.hpp:791` takes an `untangle::task<R>`. All four are hard compile
+errors, never silent.
 This is a feature plan, not a fix plan: no step below is a defect in code meant to do something
 else. It has one defect at its root all the same — the callback convention does not survive being
 queued — and that is why the feature is worth having rather than a tidier spelling of what exists.
@@ -63,7 +80,7 @@ for the split on its own:
 | | Action | Task |
 |---|---|---|
 | lives | across invocations | fired once, then gone |
-| stored as | `std::list<action_t*>` (`:123`) + `std::list<action_t> owned` (`:153`) | `std::list<task<R>>` — values, no indirection |
+| stored as | `std::list<action_t*>` (`:123`) + `std::list<action_t> owned` (`:153`) | `std::list<task<R>>` — values, no indirection *(superseded 2026-09-28: `std::list<task>`, and it names no result type)* |
 | needs | `remove()`, `release_owned()`, the dead-action sweep, `translate()` in `copy_from` | none of it |
 | arguments | supplied by the caller at invocation | bound into it at `bind_task()` |
 | callback | trailing argument of the invocation, **optional**, recognised by its type | the last argument of `bind_task()`, **required**, taken by position, carried per task |
@@ -210,6 +227,10 @@ if constexpr (std::is_void_v<result_t>) { one(); one.callback(); }
 else { results.push_back(one()); one.callback(results.back()); }
 ```
 
+*Superseded 2026-09-28: it has no arm to choose between either. A task notifies itself, so the whole
+body is `one();` and the void/non-void distinction lives in `bind_task()`, where the callback's
+shape is already known.*
+
 **`bind_task` is not new code.** It is `executor::bind_task` (`executor.hpp:304`) line for line —
 the pool invented it privately because it needed it. Moving it here is what lets the pool delete its
 copy, and what lets async delete `queued_action_t`.
@@ -227,7 +248,7 @@ check, not a type one — and that is the one hole the parameter cannot close by
 
 | # | Step | Sites | Evidence |
 |---|---|---|---|
-| 1 ✅ | `task_callback_for`, `task_callback_type` and `task<result_t>` | `:63-162` | CONFIRMED (7 cases) — **DONE** (`beb5fe8`) |
+| 1 ✅ | `task_callback_for`, `task_callback_type` and `task<result_t>` | `:63-162` | CONFIRMED (7 cases) — **DONE** (`beb5fe8`); *the last two superseded 2026-09-28, see the status block* |
 | 2 ✅ | `untangle::bind_task(action, args..., callback)` — the pack split | `:166-226` | CONFIRMED (8 cases) — **DONE** (`beb5fe8`) |
 | 3 ✅ | `tasks` storage and `add_task()`, refusing an empty callback | `:291-301`, `:323-329`, `:697-731` | CONFIRMED (9 cases) — **DONE** (`beb5fe8`) |
 | 4 ✅ | `call_tasks()` — fire, notify, record, consume | `:638-693` | CONFIRMED (8 cases) — **DONE** (`beb5fe8`) |
