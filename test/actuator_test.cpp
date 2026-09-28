@@ -1324,7 +1324,7 @@ TEST(test_actuator, test_invoke_action_records_what_the_action_threw) {
 // exists for a void result too: a task with nothing to report still has a completion to report.
 // See todo/FEATURE_PLAN.md.
 //
-// A task is one nullary callable -- untangle::task, which is a std::function<void()> -- with the
+// A task is one nullary callable -- untangle::task_t, which is a std::function<void()> -- with the
 // action, the arguments and the callback all sealed inside it. It returns nothing because its
 // result goes to its callback and nowhere else, and running it is what reports: there is no
 // separate call to notify, and no part of it to inspect or build by hand. That is what replaces
@@ -1391,9 +1391,9 @@ TEST(test_actuator, test_a_task_is_one_nullary_callable) {
   // can be, whatever it was built from -- and that is what lets one container hold tasks built
   // from completely different actions, as it already held tasks built from different argument
   // packs.
-  static_assert(std::is_same_v<untangle::task, std::function<void()>>);
+  static_assert(std::is_same_v<untangle::task_t, std::function<void()>>);
 
-  static_assert(std::is_void_v<std::invoke_result_t<untangle::task&>>);
+  static_assert(std::is_void_v<std::invoke_result_t<untangle::task_t&>>);
 }
 
 TEST(test_actuator, test_a_task_from_an_int_action_and_one_from_a_void_action_are_the_same_type) {
@@ -1402,19 +1402,19 @@ TEST(test_actuator, test_a_task_from_an_int_action_and_one_from_a_void_action_ar
   // tasks list no longer reads one off its action type.
   static_assert(std::is_same_v<decltype(untangle::bind_task(std::function<int(int)>{}, 1,
                                                             std::function<void(int)>{})),
-                               untangle::task>);
+                               untangle::task_t>);
   static_assert(std::is_same_v<decltype(untangle::bind_task(std::function<void(int)>{}, 1,
                                                             std::function<void()>{})),
-                               untangle::task>);
+                               untangle::task_t>);
 }
 
 TEST(test_actuator, test_a_default_built_task_is_empty) {
   // actuator::add_task() tests a task before holding it, and a task has to answer that test the
   // way a std::function does. A default-constructed one holds nothing to run.
-  untangle::task empty;
+  untangle::task_t empty;
   ASSERT_FALSE(static_cast<bool>(empty));
 
-  untangle::task ready = [] {};
+  untangle::task_t ready = [] {};
   ASSERT_TRUE(static_cast<bool>(ready));
 }
 
@@ -1425,7 +1425,7 @@ TEST(test_actuator, test_running_a_task_is_what_reports) {
   // has run.
   int reported = 0;
 
-  untangle::task one = untangle::bind_task(std::function<int(void)>([] { return 21 * 2; }),
+  untangle::task_t one = untangle::bind_task(std::function<int(void)>([] { return 21 * 2; }),
                                            std::function<void(int)>(
                                                [&reported](int result) { reported = result; }));
 
@@ -1440,7 +1440,7 @@ TEST(test_actuator, test_a_void_task_reports_only_that_it_finished) {
   bool finished = false;
   int ran = 0;
 
-  untangle::task one = untangle::bind_task(std::function<void(void)>([&ran] { ++ran; }),
+  untangle::task_t one = untangle::bind_task(std::function<void(void)>([&ran] { ++ran; }),
                                            std::function<void()>([&finished] { finished = true; }));
 
   one();
@@ -1561,7 +1561,7 @@ TEST(test_actuator, test_bind_task_accepts_a_bare_lambda_as_the_callback) {
 
   auto one = untangle::bind_task(action, 7, [&reported](int result) { reported = result; });
 
-  static_assert(std::is_same_v<decltype(one), untangle::task>);
+  static_assert(std::is_same_v<decltype(one), untangle::task_t>);
 
   one();
   ASSERT_EQ(reported, 21);
@@ -1576,7 +1576,7 @@ TEST(test_actuator, test_bind_task_accepts_an_action_type_that_is_not_a_std_func
   auto one = untangle::bind_task(summing_action{}, 40, 2,
                                  std::function<void(int)>([&reported](int r) { reported = r; }));
 
-  static_assert(std::is_same_v<decltype(one), untangle::task>);
+  static_assert(std::is_same_v<decltype(one), untangle::task_t>);
 
   one();
   ASSERT_EQ(reported, 42);
@@ -1807,7 +1807,7 @@ TEST(test_actuator, test_add_task_refuses_a_task_with_nothing_to_run) {
   // refused to seal -- and either would throw std::bad_function_call out of call_tasks().
   untangle::actuator<std::function<int(int)>> actuator;
 
-  untangle::task nothing;
+  untangle::task_t nothing;
   ASSERT_FALSE(actuator.add_task(std::move(nothing))) << "add_task took a task with nothing to run";
 
   ASSERT_FALSE(actuator.add_task(untangle::bind_task(

@@ -19,7 +19,7 @@ decision left open.**
 **Superseded in part (2026-09-28) — the task's *representation* changed; nothing about what a task
 *is* did.** `task<result_t>`, which carried a `call` and a `callback` side by side, and
 `task_callback_type`, which named the callback's type, are gone. A task is now
-`using task = std::function<void()>` — the action, its arguments and its callback sealed into one
+`using task_t = std::function<void()>` — the action, its arguments and its callback sealed into one
 nullary callable, which notifies itself when it runs. `bind_task()` keeps its name, its signature
 and both static_asserts; `task_callback_for` is untouched. What moved: the empty-callback and
 empty-action refusals, which `add_task()` can no longer see, so `bind_task()` returns an empty task
@@ -340,7 +340,7 @@ wording is the diagnostic a caller actually meets.
 
 **A `\ref` from inside a concept's documentation block never resolves.** Step 1 saw `\ref actuator`
 fail there and left it unexplained; step 2 reproduced it exactly with `\ref bind_task()`, which
-resolves from `task`'s block and from `bind_task`'s own and fails only from the concept's. Two data
+resolves from `task_t`'s block and from `bind_task`'s own and fails only from the concept's. Two data
 points, one rule: **inside a concept, name symbols in code font.** Not a debt against a later step,
 because it never becomes a link.
 
