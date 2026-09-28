@@ -1408,6 +1408,44 @@ TEST(test_actuator, test_a_task_from_an_int_action_and_one_from_a_void_action_ar
                                untangle::task_t>);
 }
 
+TEST(test_actuator, test_only_a_callable_that_can_answer_is_asked_whether_it_is_empty) {
+  // bind_task() refuses an action or a callback that is empty, and has to decide first whether the
+  // question can be put at all. A std::function answers with operator bool and a function pointer
+  // with its own value, so both are asked.
+  static_assert(untangle::testable_for_emptiness<std::function<void(int)>>);
+  static_assert(untangle::testable_for_emptiness<void (*)(int)>);
+
+  // A captureless lambda answers with neither, and must not be asked. It converts implicitly to a
+  // function pointer, so a plain static_cast<bool> test compiles and answers on its behalf --
+  // always true, since that conversion never yields null. The test is dead, and MSVC reports the
+  // conversion as a truncation (C4305).
+  auto captureless = [](int) {};
+  static_assert(!untangle::testable_for_emptiness<decltype(captureless)>);
+
+  // A capturing lambda has no such conversion and was never asked.
+  int captured = 0;
+  auto capturing = [&captured](int) { ++captured; };
+  static_assert(!untangle::testable_for_emptiness<decltype(capturing)>);
+
+  // A functor is a callable like any other, and names no emptiness of its own.
+  static_assert(!untangle::testable_for_emptiness<int_sink>);
+}
+
+TEST(test_actuator, test_a_task_built_from_a_captureless_lambda_callback_is_not_empty) {
+  // The other side of the question: whatever the guard decides, a task built with a captureless
+  // lambda as its callback is a task that can report, and bind_task() must not turn it away.
+  static bool notified = false;
+  notified = false;
+
+  auto task = untangle::bind_task(std::function<int(int)>([](int n) { return n * 2; }), 21,
+                                  [](int) { notified = true; });
+
+  ASSERT_TRUE(static_cast<bool>(task)) << "a task with a usable callback was built empty";
+
+  task();
+  EXPECT_TRUE(notified) << "the task ran without notifying its callback";
+}
+
 TEST(test_actuator, test_a_default_built_task_is_empty) {
   // actuator::add_task() tests a task before holding it, and a task has to answer that test the
   // way a std::function does. A default-constructed one holds nothing to run.

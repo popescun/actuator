@@ -93,6 +93,25 @@ concept task_callback_for =
      requires(callback_t& c) { requires std::is_void_v<decltype(c())>; });
 
 /**
+ * @brief Can \p callable_t say whether it is empty?
+ *
+ * bind_task() refuses an empty action or an empty callback, and has to decide first whether that
+ * question can be put at all. A std::function answers it with operator bool, and a pointer
+ * with its own value.
+ *
+ * @attention **A lambda is not asked, and asking anyway is worse than not asking.** A captureless
+ * one converts implicitly to a function pointer, so a plain `static_cast<bool>` test compiles and
+ * answers on its behalf -- always true, because that conversion never yields null. The test is dead
+ * for every lambda that reaches it, and MSVC reports the conversion it rests on as a truncation
+ * (C4305). Asking for operator bool by name is what leaves a lambda out.
+ *
+ * @tparam callable_t Type of the action or the callback.
+ */
+template <typename callable_t>
+concept testable_for_emptiness =
+    std::is_pointer_v<callable_t> || requires(const callable_t& c) { c.operator bool(); };
+
+/**
  * @brief An action, its arguments and the callback it notifies, sealed into one nullary callable.
  *
  * What \ref bind_task() builds, \ref actuator::add_task() holds and actuator::call_tasks() fires.
@@ -1065,14 +1084,15 @@ task_t bind_task(action_t action, Args&&... args) {
   auto pack = std::forward_as_tuple(std::forward<Args>(args)...);
 
   // A task that could not do its job is built empty, and add_task() refuses it on the caller's
-  // own stack. Only a callable that can be tested is tested: a bare lambda is never empty.
-  if constexpr (requires { static_cast<bool>(std::get<last>(pack)); }) {
-    if (!static_cast<bool>(std::get<last>(pack))) {
+  // own stack. Only a callable that can answer is asked -- see \ref testable_for_emptiness -- and
+  // the answer is read contextually, so no explicit conversion is left to truncate.
+  if constexpr (testable_for_emptiness<callback_t>) {
+    if (!std::get<last>(pack)) {
       return {};
     }
   }
-  if constexpr (requires { static_cast<bool>(action); }) {
-    if (!static_cast<bool>(action)) {
+  if constexpr (testable_for_emptiness<action_t>) {
+    if (!action) {
       return {};
     }
   }
