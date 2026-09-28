@@ -1425,9 +1425,9 @@ TEST(test_actuator, test_running_a_task_is_what_reports) {
   // has run.
   int reported = 0;
 
-  untangle::task_t one = untangle::bind_task(std::function<int(void)>([] { return 21 * 2; }),
-                                           std::function<void(int)>(
-                                               [&reported](int result) { reported = result; }));
+  untangle::task_t one =
+      untangle::bind_task(std::function<int(void)>([] { return 21 * 2; }),
+                          std::function<void(int)>([&reported](int result) { reported = result; }));
 
   one();
 
@@ -1440,8 +1440,9 @@ TEST(test_actuator, test_a_void_task_reports_only_that_it_finished) {
   bool finished = false;
   int ran = 0;
 
-  untangle::task_t one = untangle::bind_task(std::function<void(void)>([&ran] { ++ran; }),
-                                           std::function<void()>([&finished] { finished = true; }));
+  untangle::task_t one =
+      untangle::bind_task(std::function<void(void)>([&ran] { ++ran; }),
+                          std::function<void()>([&finished] { finished = true; }));
 
   one();
 
@@ -1610,8 +1611,9 @@ TEST(test_actuator, test_bind_task_hands_the_result_over_without_copying_it) {
   std::function<counted_result(int)> action = [](int v) { return counted_result{v}; };
 
   auto one = untangle::bind_task(
-      action, 42, std::function<void(const counted_result&)>(
-                      [&reported](const counted_result& result) { reported = result.value; }));
+      action, 42,
+      std::function<void(const counted_result&)>(
+          [&reported](const counted_result& result) { reported = result.value; }));
 
   counted_result::reset();
   one();
@@ -1810,8 +1812,8 @@ TEST(test_actuator, test_add_task_refuses_a_task_with_nothing_to_run) {
   untangle::task_t nothing;
   ASSERT_FALSE(actuator.add_task(std::move(nothing))) << "add_task took a task with nothing to run";
 
-  ASSERT_FALSE(actuator.add_task(untangle::bind_task(
-      std::function<int(int)>{}, 1, std::function<void(int)>([](int) {}))))
+  ASSERT_FALSE(actuator.add_task(
+      untangle::bind_task(std::function<int(int)>{}, 1, std::function<void(int)>([](int) {}))))
       << "add_task took a task built from an empty action";
 
   ASSERT_TRUE(actuator.tasks.empty());

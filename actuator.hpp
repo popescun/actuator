@@ -79,9 +79,9 @@ auto last_arg(Args&&... args) {
  * callback by position. A void result reports *finished*, so its callback takes no argument.
  *
  * @attention Both disjuncts are load-bearing: the first yields **false** for a void result rather
- * than failing hard (`void&` in a requires-parameter list is a substitution failure in the immediate
- * context), and the second's `std::is_void_v` guard keeps a `std::function<void()>` from satisfying
- * this for *any* result type.
+ * than failing hard (`void&` in a requires-parameter list is a substitution failure in the
+ * immediate context), and the second's `std::is_void_v` guard keeps a `std::function<void()>` from
+ * satisfying this for *any* result type.
  *
  * @tparam callback_t Type of the callback.
  * @tparam result_t Result type of the task it reports on.
@@ -98,10 +98,11 @@ concept task_callback_for =
  * What \ref bind_task() builds, \ref actuator::add_task() holds and actuator::call_tasks() fires.
  *
  * @remark **An action is a subscription; a task is a one-shot**: it carries its own arguments, is
- * fired once and reports to its own callback -- so it is held by value, and call_tasks() consumes it.
+ * fired once and reports to its own callback -- so it is held by value, and call_tasks() consumes
+ * it.
  *
- * @remark **Running it is what reports**, and it returns nothing: the result goes to the callback and
- * nowhere else, so there is nothing to read back and no part of it to reach from outside.
+ * @remark **Running it is what reports**, and it returns nothing: the result goes to the callback
+ * and nowhere else, so there is nothing to read back and no part of it to reach from outside.
  *
  * @remark **It names neither the argument types nor the result type**, so one container holds tasks
  * built from completely different actions. Anything that can be a std::function<void()> is a task.
@@ -612,9 +613,9 @@ struct actuator final {
    * @brief Adds a task, to be fired by \ref call_tasks().
    *
    * It is stored **by value**: an actuator owns every task it holds, unlike the actions it merely
-   * points at. Anything that can be an \ref untangle::task_t is taken, from \ref bind_task() or not.
-   * There is no counterpart to \ref remove() and no named form -- \ref call_tasks() consumes the
-   * list, and tasks fire as a batch, in the order they were added.
+   * points at. Anything that can be an \ref untangle::task_t is taken, from \ref bind_task() or
+   * not. There is no counterpart to \ref remove() and no named form -- \ref call_tasks() consumes
+   * the list, and tasks fire as a batch, in the order they were added.
    *
    * @attention It refuses an **empty** task, and **the refusal is the whole report**: nothing is
    * thrown and nothing is stored. It lands while the caller is still on the stack, rather than
@@ -1077,18 +1078,20 @@ task_t bind_task(action_t action, Args&&... args) {
   }
 
   // The pack is indexed rather than unpacked, because everything but its last element is bound and
-  // a fold cannot say "all but the last".
+  // a fold cannot say "all but the last". The bound arguments are copied into one tuple rather
+  // than into a capture pack: an init-capture pack expanded in a dependent context crashes GCC 14
+  // (an ICE in tsubst_pack_expansion), and a tuple says the same thing in an ordinary expression.
   return [&]<std::size_t... i>(std::index_sequence<i...>) -> task_t {
     return [action = std::move(action), callback = callback_t(std::get<last>(pack)),
-            ... bound = std::decay_t<decltype(std::get<i>(pack))>(
-                std::get<i>(pack))]() mutable -> void {
+            bound = std::tuple<std::decay_t<decltype(std::get<i>(pack))>...>(
+                std::get<i>(pack)...)]() mutable -> void {
       if constexpr (std::is_void_v<result_t>) {
-        action(bound...);
+        std::apply(action, bound);
         callback();
       } else {
         // One expression, so the result is handed over as an rvalue: a result type that cannot be
         // copied is still a result a task can report.
-        callback(action(bound...));
+        callback(std::apply(action, bound));
       }
     };
   }(std::make_index_sequence<last>{});
