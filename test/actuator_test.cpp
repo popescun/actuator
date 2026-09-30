@@ -854,6 +854,43 @@ TEST(test_actuator, test_trailing_non_callable_is_not_a_callback) {
   ASSERT_EQ(actuator.results.front(), 5);
 }
 
+/**
+ * @brief An argument that counts how often it is copied.
+ */
+struct copy_counter {
+  explicit copy_counter(int& copies_) : copies(&copies_) {}
+  copy_counter(const copy_counter& other) : copies(other.copies) { ++*copies; }
+  copy_counter& operator=(const copy_counter& other) {
+    copies = other.copies;
+    ++*copies;
+    return *this;
+  }
+
+  int* copies;
+};
+
+TEST(test_actuator, test_trailing_non_callback_is_not_copied) {
+  // Only a callback is copied out of the argument pack. An ordinary last argument passed by lvalue
+  // to actions taking it by reference reaches every one of them without a single copy - which is
+  // what a large payload broadcast to several actions relies on.
+  int copies = 0;
+  std::function<int(const copy_counter&)> first = [](const copy_counter&) { return 1; };
+  std::function<int(const copy_counter&)> second = [](const copy_counter&) { return 2; };
+
+  auto actuator = untangle::connect(first, second);
+  const copy_counter counter{copies};
+  actuator(counter);
+
+  ASSERT_EQ(actuator.results.size(), 2);
+  ASSERT_EQ(copies, 0) << "operator() copied an argument that is not a callback";
+
+  auto named = untangle::connect(std::make_pair(std::string("first"), &first));
+  named.invoke_action("first", counter);
+
+  ASSERT_EQ(named.results.size(), 1);
+  ASSERT_EQ(copies, 0) << "invoke_action() copied an argument that is not a callback";
+}
+
 TEST(test_actuator, test_callback_with_return_type_is_not_accepted) {
   // A callback exists to consume the action's return value, so it returns nothing itself.
   // A trailing callable that does return something is the action's own data -- a transform,

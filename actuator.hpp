@@ -410,13 +410,43 @@ struct actuator final {
    * action: an action taking it by value moves from the caller's std::function, which would
    * leave this an empty function to call.
    *
-   * @tparam last_t Type of the last argument, as returned by \ref last_arg().
-   * @param last - Last argument value, copied before the action was invoked.
+   * @tparam last_t Type of what \ref take_callback() returned.
+   * @param last - The callback, copied before the action was invoked, or a \ref no_callback.
    */
   template <typename last_t>
   void invoke_callback(last_t& last) {
     if constexpr (requires { requires std::is_void_v<decltype(last(results.back()))>; }) {
       last(results.back());
+    }
+  }
+
+  //! What \ref take_callback() holds when there is no callback: \ref invoke_callback() cannot call
+  //! it, so it does nothing.
+  struct no_callback {};
+
+  /**
+   * @brief Copies the trailing callback out of \p args, or nothing when the last argument is none.
+   *
+   * @remark Only a callback is copied. An ordinary last argument is never read from here, so a copy
+   * of it would be pure cost -- a whole payload per call for a caller passing a large one.
+   *
+   * @remark The test is \ref invoke_callback()'s own: an action returning void reports nothing, so
+   * it has no callback whatever its last argument is.
+   */
+  template <typename... Args>
+  static auto take_callback(Args&... args) {
+    using result_t = typename action_t::result_type;
+
+    if constexpr (sizeof...(Args) == 0 || std::is_void_v<result_t>) {
+      return no_callback{};
+    } else {
+      using last_t = std::decay_t<std::tuple_element_t<sizeof...(Args) - 1, std::tuple<Args...>>>;
+
+      if constexpr (task_callback_for<last_t, result_t>) {
+        return last_arg(args...);
+      } else {
+        return no_callback{};
+      }
     }
   }
 
@@ -441,7 +471,7 @@ struct actuator final {
     errors.clear();
 
     // Copied up front, before any action can move the callback out of the argument pack.
-    auto last = last_arg(args...);
+    auto last = take_callback(args...);
 
     // Dead bindings are collected here and dropped after the loop.
     // The actuator does not own the actions it points at, so it must never
@@ -503,7 +533,7 @@ struct actuator final {
     errors.clear();
 
     // Copied up front, before the action can move the callback out of the argument pack.
-    auto last = last_arg(args...);
+    auto last = take_callback(args...);
     const auto it = actions_map.find(name);
     if (it == actions_map.end()) {
       return;
