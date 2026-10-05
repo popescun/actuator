@@ -169,7 +169,8 @@ using task_t = std::function<void()>;
  * is stored in actuator::errors, one std::exception_ptr per failure, and the actions after it
  * still run. An untangle::invalid_action means a dead binding, so that action is dropped as well;
  * anything else leaves the action in place. Nothing is printed and nothing escapes the call - the
- * caller reads actuator::errors and decides.
+ * caller reads actuator::errors and decides. A failed action pushes no result, so actuator::results
+ * then holds fewer entries than there are actions.
  *
  * @remark Ownership convention: an actuator normally does not own its actions. It stores
  * pointers to std::function objects the caller keeps alive, and those have to outlive it.
@@ -209,6 +210,9 @@ struct actuator final {
    *
    * It holds the return values of the actions that have a non-void return type.
    * Upon the actuator invocation, the returns can be extracted from \ref results.
+   *
+   * @remark One entry per action that returned, in invocation order. An action that threw leaves
+   * none, so results[i] is the i-th action's return only when actuator::errors is empty.
    */
   using results_t = std::vector<typename result_t::type>;
   /**
