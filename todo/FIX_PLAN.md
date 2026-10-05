@@ -6,6 +6,8 @@ Everything through step 25 is committed except **step 18**, which is applied and
 **Tests:** 23/23 green — `cd test/build && cmake --build . && ./bin/actuator_test` (baseline was 11/11)
 **Docs:** 0 doxygen warnings; `doc/refman.pdf` is 33 pages (was 21).
 **Source:** findings in `todo`, verified 2026-09-02 by compiling and running probes.
+**2026-10-05 review:** steps 27–28 (group 8) are open, read at `630683d` from fluxcpp's module
+review.
 
 ## Progress
 
@@ -92,6 +94,9 @@ inconsistent for a commit, which is the opposite of atomic. Every such case is f
 | 24c ✅ | G | `remove()` documented with the `add` snippet | `:227` | CONFIRMED |
 | 25 ✅ | H | 8 doxygen warnings in the header's doc comments | `:25,268,355,383,388` | CONFIRMED |
 | 26 ✅ | I | Doxyfile has no `INPUT`/`OUTPUT_DIRECTORY` | `Doxyfile:61,802,876,1118` | CONFIRMED |
+| **Group 8 — from the 2026-10-05 review** |
+| 27 | J | an action that removes itself during dispatch is a use-after-free | `:474-528` (`operator()`), `:536` (`invoke_action`), `:707`, `:352` | CONFIRMED (ASan) |
+| 28 | K | `reset()` leaves `tasks`, so the actuator is not empty after it | `:286` | read-only |
 
 ---
 
@@ -718,3 +723,39 @@ would clear them but rewrites the entire file, so it was left as a separate deci
 **Toolchain (installed 2026-09-04):** `doxygen`, `tectonic`, `poppler`. There is no `makeindex`,
 so `refman.ind` must be generated from `refman.idx` by script before the final compile, or the
 PDF silently loses its alphabetical index.
+
+## Group 8 — from the 2026-10-05 review
+
+A read of `actuator.hpp` at `630683d`, after fluxcpp's fix plan added `noexcept` binding, the
+funcref `bind` and the positional-results note.
+
+### Step 27 · finding J — an action that removes itself during dispatch
+`actuator.hpp:474-528` (`operator()`), `:536` (`invoke_action`), `:707` (`remove`), `:352`
+(`release_owned`) · CONFIRMED by probe (ASan)
+
+`operator()` walks `actions` with a range-for. An action that calls `remove()` on its own actuator
+for itself takes its node out of the list, and `release_owned()` destroys its `std::function` - the
+one still running. The action returns into freed captures, and the loop steps on from a freed node:
+
+```
+self: ERROR: AddressSanitizer: heap-use-after-free
+```
+
+Removing another action is safe - a `std::list` invalidates only the removed node - and an action
+added during dispatch runs in the same pass. `invoke_action` has the same shape for a named action
+that removes itself. It is reachable through intrinsic_interface: a receiver that disconnects
+itself from inside its own call (intrinsic_interface plan, step 1).
+
+> Proposed: while a dispatch runs, defer removals - mark the action, skip it if the loop has not
+> reached it, and drop it and release what is owned after the loop. A depth counter covers a
+> dispatch re-entered from an action. Test: an owned action removing itself, one removing the next,
+> and the same through `invoke_action`, under ASan.
+
+### Step 28 · finding K — `reset()` leaves the tasks
+`actuator.hpp:286` · read-only
+
+`reset()` clears `actions`, `actions_map`, `results`, `errors` and `owned`, and its doc says the
+actuator is empty afterwards - but `tasks` stays, so `has_tasks()` can be true and a later
+`call_tasks()` fires what was queued before the reset.
+
+> Proposed: clear `tasks` too, or say in the doc that tasks are kept. Clearing matches "empty".
