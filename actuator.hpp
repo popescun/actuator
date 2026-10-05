@@ -1,15 +1,5 @@
 // Copyright (c) 2018 Nicolae Popescu. MIT License.
 
-// Two doxygen gotchas this file has met, for whoever writes the next comment in it. Both cost a
-// session before they were understood; tools/make_doc.sh fails on either, so neither reaches the
-// PDF. Recorded in todo/FEATURE_PLAN.md as well.
-//   - A \ref from inside a **concept's** documentation block never resolves. It resolves from an
-//     ordinary block -- a using, a function, a member -- which is what makes the failure read as a
-//     missing symbol. Name symbols in code font inside a concept.
-//   - A colon run onto a \ref is swallowed into the symbol name: `\ref owned:` is read as a
-//     reference to a symbol called `owned:`. End the sentence, or reword, rather than punctuating
-//     straight after a reference.
-
 /**
  * @brief Interface to \ref untangle::actuator functor.
  */
@@ -179,6 +169,12 @@ using task_t = std::function<void()>;
  * named variable to keep around. The handle it returns is the only way to \ref remove()
  * such an action afterwards.
  *
+ * @remark Re-entrancy convention: nothing is removed while the actuator is dispatching - while
+ * \ref operator()() or \ref invoke_action() is calling an action. Removal destroys an owned action
+ * at once, so the action running, or the loop calling it, would be left on freed memory. Both
+ * \ref remove() overloads refuse it and return false; remove once the call has returned. Adding
+ * during a dispatch is fine: an added action is called in the same pass.
+ *
  * @tparam action_t Action type. It is specified as std::function<...>.
  */
 template <typename action_t>
@@ -243,6 +239,10 @@ struct actuator final {
    * are added. A std::vector would reallocate and dangle all of them at once.
    */
   std::list<action_t> owned;
+
+  //! How many \ref operator()() or \ref invoke_action() calls are calling an action: more than one
+  //! when an action dispatches this actuator again. See the re-entrancy convention.
+  std::size_t dispatching = 0;
 
   actuator() = default;
   /**
@@ -483,6 +483,7 @@ struct actuator final {
     // write through action_t* into a std::function belonging to the caller.
     std::vector<action_t*> dead_actions;
 
+    ++dispatching;
     for (const auto& action : actions) {
       // A null pointer or an empty std::function can never be invoked. Calling an
       // empty one throws std::bad_function_call, which is not an invalid_action and
@@ -510,9 +511,11 @@ struct actuator final {
       }
     }
 
+    --dispatching;
+
+    // Refused inside a dispatch further out; the next dispatch finds them dead again.
     for (const auto& dead_action : dead_actions) {
-      actions.remove(dead_action);
-      release_owned(dead_action);
+      remove(dead_action);
     }
   }
 
@@ -549,12 +552,12 @@ struct actuator final {
     // one throws std::bad_function_call, which is not an invalid_action and would escape
     // this method. Drop it instead, as operator()() does for the actions list.
     if (it->second == nullptr || !*it->second) {
-      const action_t* dead_action = it->second;
-      actions_map.erase(it);
-      release_owned(dead_action);
+      remove(name);
       return;
     }
 
+    ++dispatching;
+    bool dead = false;
     try {
       if constexpr (std::is_same_v<typename action_t::result_type, void>) {
         (*it->second)(std::forward<Args>(args)...);
@@ -564,11 +567,14 @@ struct actuator final {
       }
     } catch (const invalid_action&) {
       errors.push_back(std::current_exception());
-      const action_t* dead_action = it->second;
-      actions_map.erase(name);
-      release_owned(dead_action);
+      dead = true;
     } catch (...) {
       errors.push_back(std::current_exception());
+    }
+    --dispatching;
+
+    if (dead) {
+      remove(name);
     }
   }
 
@@ -700,13 +706,19 @@ struct actuator final {
    *
    * @param action - Action to be removed. For an owned action this is the handle returned by
    * \ref add(action_t&&).
+   * @return true - removed. false - refused during a dispatch (see the re-entrancy convention on
+   * \ref actuator), or not in the actions list.
    *
    * Example:
    * \snippet actuator_test.cpp test_remove
    */
-  void remove(const action_t* action) {
-    actions.remove_if([&action](const auto& a) { return (action == a); });
+  bool remove(const action_t* action) {
+    if (dispatching > 0) {
+      return false;
+    }
+    const auto removed = actions.remove_if([&action](const auto& a) { return (action == a); });
     release_owned(action);
+    return removed > 0;
   }
 
   /**
@@ -716,15 +728,21 @@ struct actuator final {
    * afterwards. See \ref release_owned().
    *
    * @param name -  Name of the action to remove.
+   * @return true - removed. false - refused during a dispatch (see the re-entrancy convention on
+   * \ref actuator), or no action has that name.
    */
-  void remove(const std::string& name) {
+  bool remove(const std::string& name) {
+    if (dispatching > 0) {
+      return false;
+    }
     const auto it = actions_map.find(name);
     if (it == actions_map.end()) {
-      return;
+      return false;
     }
     const action_t* action = it->second;
     actions_map.erase(it);
     release_owned(action);
+    return true;
   }
 
   /**
@@ -758,6 +776,9 @@ struct actuator final {
    * @return false - no task is waiting. True again after \ref call_tasks(), which consumes them.
    */
   bool has_tasks() const { return !tasks.empty(); }
+
+  //! Whether an action is being called right now, so a removal would be refused.
+  bool is_dispatching() const { return dispatching > 0; }
 
   /**
    * @brief Check if there is certain named action.

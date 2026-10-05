@@ -820,6 +820,72 @@ TEST(test_actuator, test_bind_funcref_field_empty_is_a_dead_action) {
   EXPECT_THROW(action(5), untangle::invalid_action);
 }
 
+// No removal while the actuator is dispatching: operator() and invoke_action() refuse it, and leave
+// the actuator as it was (re-entrancy convention). An action that removed itself used to run on
+// freed memory.
+
+TEST(test_actuator, test_an_action_cannot_remove_itself_during_dispatch) {
+  untangle::actuator<std::function<int(int)>> actuator;
+  std::function<int(int)>* self = nullptr;
+  bool removed = true;
+  int bonus = 1;  // not const: a constant is never captured, so never read from the closure
+  self = actuator.add([&actuator, &self, &removed, bonus](int v) {
+    removed = actuator.remove(self);
+    return v + bonus;
+  });
+
+  actuator(1);
+  EXPECT_FALSE(removed) << "remove() refused";
+  actuator(2);
+
+  EXPECT_THAT(actuator.results, ::testing::ElementsAre(3)) << "the action is still there";
+  EXPECT_EQ(actuator.actions.size(), 1);
+}
+
+TEST(test_actuator, test_an_action_cannot_remove_another_during_dispatch) {
+  untangle::actuator<std::function<int(int)>> actuator;
+  std::function<int(int)>* other = nullptr;
+  bool removed = true;
+  actuator.add([&actuator, &other, &removed](int v) {
+    removed = actuator.remove(other);
+    return v;
+  });
+  other = actuator.add([](int v) { return v * 10; });
+
+  actuator(1);
+
+  EXPECT_FALSE(removed) << "remove() refused";
+  EXPECT_THAT(actuator.results, ::testing::ElementsAre(1, 10)) << "the other one still ran";
+  EXPECT_EQ(actuator.actions.size(), 2) << "and is still there";
+}
+
+TEST(test_actuator, test_a_named_action_cannot_remove_itself_during_invoke_action) {
+  untangle::actuator<std::function<int(int)>> actuator;
+  bool removed = true;
+  int bonus = 1;
+  actuator.add("once", [&actuator, &removed, bonus](int v) {
+    removed = actuator.remove("once");
+    return v + bonus;
+  });
+
+  actuator.invoke_action("once", 1);
+
+  EXPECT_FALSE(removed) << "remove() refused";
+  EXPECT_THAT(actuator.results, ::testing::ElementsAre(2));
+  EXPECT_TRUE(actuator.has_action("once")) << "the action is still there";
+}
+
+TEST(test_actuator, test_an_action_can_be_removed_once_the_dispatch_returns) {
+  untangle::actuator<std::function<int(int)>> actuator;
+  auto* action = actuator.add([](int v) { return v; });
+
+  actuator(1);
+
+  EXPECT_TRUE(actuator.remove(action)) << "removed";
+  EXPECT_FALSE(actuator.is_connected());
+  EXPECT_FALSE(actuator.remove(action)) << "not there any more";
+}
+
 TEST(test_actuator, test_action_has_callback) {
   int result = 0;
   std::function action = [](int v, std::function<void(int)>& cbk) { return v; };

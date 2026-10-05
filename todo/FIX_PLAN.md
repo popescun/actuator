@@ -6,8 +6,8 @@ Everything through step 25 is committed except **step 18**, which is applied and
 **Tests:** 23/23 green — `cd test/build && cmake --build . && ./bin/actuator_test` (baseline was 11/11)
 **Docs:** 0 doxygen warnings; `doc/refman.pdf` is 33 pages (was 21).
 **Source:** findings in `todo`, verified 2026-09-02 by compiling and running probes.
-**2026-10-05 review:** steps 27–28 (group 8) are open, read at `630683d` from fluxcpp's module
-review.
+**2026-10-05 review:** step 27 is fixed (removal is refused during a dispatch), step 28 is open
+(group 8), read at `630683d` from fluxcpp's module review.
 
 ## Progress
 
@@ -95,7 +95,7 @@ inconsistent for a commit, which is the opposite of atomic. Every such case is f
 | 25 ✅ | H | 8 doxygen warnings in the header's doc comments | `:25,268,355,383,388` | CONFIRMED |
 | 26 ✅ | I | Doxyfile has no `INPUT`/`OUTPUT_DIRECTORY` | `Doxyfile:61,802,876,1118` | CONFIRMED |
 | **Group 8 — from the 2026-10-05 review** |
-| 27 | J | an action that removes itself during dispatch is a use-after-free | `:474-528` (`operator()`), `:536` (`invoke_action`), `:707`, `:352` | CONFIRMED (ASan) |
+| 27 ✅ | J | an action that removes itself during dispatch is a use-after-free | `:474-528` (`operator()`), `:536` (`invoke_action`), `:707`, `:352` | CONFIRMED (ASan) — fixed: removal refused during a dispatch |
 | 28 | K | `reset()` leaves `tasks`, so the actuator is not empty after it | `:286` | read-only |
 
 ---
@@ -729,7 +729,7 @@ PDF silently loses its alphabetical index.
 A read of `actuator.hpp` at `630683d`, after fluxcpp's fix plan added `noexcept` binding, the
 funcref `bind` and the positional-results note.
 
-### Step 27 · finding J — an action that removes itself during dispatch
+### Step 27 ✅ · finding J — an action that removes itself during dispatch — FIXED
 `actuator.hpp:474-528` (`operator()`), `:536` (`invoke_action`), `:707` (`remove`), `:352`
 (`release_owned`) · CONFIRMED by probe (ASan)
 
@@ -750,6 +750,23 @@ itself from inside its own call (intrinsic_interface plan, step 1).
 > reached it, and drop it and release what is owned after the loop. A depth counter covers a
 > dispatch re-entered from an action. Test: an owned action removing itself, one removing the next,
 > and the same through `invoke_action`, under ASan.
+
+> Decided 2026-10-05: forbidden, not fixed. A deferred-removal fix (a dispatch depth counter, with
+> removals made when the outermost dispatch returns) passed every suite, and so did a smaller one
+> that remembers the running action; both were judged too intrusive for a case nothing here needs.
+> The class doc now has a re-entrancy convention - an action must not remove itself from the
+> actuator calling it; removing another action, or adding one, during a dispatch is fine - and
+> both `remove()` overloads point to it. The probe's tests were dropped.
+>
+> Then enforced, the same day: no removal of any kind during a dispatch. A `dispatching` flag is
+> set around the loop in `operator()` and around the call in `invoke_action` - saved and restored,
+> so a nested dispatch does not clear it for the outer one - and both `remove()` overloads return
+> `bool`: false, changing nothing, during a dispatch or when there is nothing to remove; true when
+> removed. Dead bindings are removed after the flag is restored, so the outermost dispatch still
+> drops them. `is_dispatching()` answers for intrinsic_interface. Adding during a dispatch is still
+> fine. Four tests: an action cannot remove itself or another during `operator()`, a named action
+> cannot remove itself during `invoke_action`, and removal works once the dispatch has returned.
+> 118 of 118, plain and under ASan.
 
 ### Step 28 · finding K — `reset()` leaves the tasks
 `actuator.hpp:286` · read-only
