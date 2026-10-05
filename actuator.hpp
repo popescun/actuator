@@ -172,8 +172,8 @@ using task_t = std::function<void()>;
  * @remark Re-entrancy convention: nothing is removed while the actuator is dispatching - while
  * \ref operator()() or \ref invoke_action() is calling an action. Removal destroys an owned action
  * at once, so the action running, or the loop calling it, would be left on freed memory. Both
- * \ref remove() overloads refuse it and return false; remove once the call has returned. Adding
- * during a dispatch is fine: an added action is called in the same pass.
+ * \ref remove() overloads and \ref reset() refuse it and return false; remove once the call has
+ * returned. Adding during a dispatch is fine: an added action is called in the same pass.
  *
  * @tparam action_t Action type. It is specified as std::function<...>.
  */
@@ -277,18 +277,27 @@ struct actuator final {
   action_t type() const { return nullptr; }
 
   /**
-   * @brief Remove all actions, and any stored results and errors.
+   * @brief Remove all actions and tasks, and any stored results and errors.
    *
-   * After this call the actuator is empty: actuator::is_connected() returns false. The
-   * actions it owns are destroyed, so every handle returned by \ref add(action_t&&) is
-   * dangling afterwards; the actions it merely points at are left untouched.
+   * After this call the actuator is empty: actuator::is_connected() and actuator::has_tasks()
+   * return false. The actions it owns are destroyed, so every handle returned by
+   * \ref add(action_t&&) is dangling afterwards; the actions it merely points at are left
+   * untouched.
+   *
+   * @return true - emptied. false - refused during a dispatch, and nothing changed: see the
+   * re-entrancy convention on \ref actuator.
    */
-  void reset() {
+  bool reset() {
+    if (dispatching > 0) {
+      return false;
+    }
     actions.clear();
     actions_map.clear();
+    tasks.clear();
     results.clear();
     errors.clear();
     owned.clear();
+    return true;
   }
 
   /**

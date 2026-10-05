@@ -474,6 +474,55 @@ TEST(test_actuator, test_reset) {
   EXPECT_EQ(actuator_height.results.size(), 0);
 }
 
+TEST(test_actuator, test_reset_clears_the_tasks) {
+  // reset() leaves the actuator empty, tasks included: nothing queued before it fires after it.
+  untangle::actuator<std::function<int(int)>> actuator;
+  std::function<int(int)> action = [](int n) { return n; };
+  int reported = 0;
+  ASSERT_TRUE(actuator.add_task(
+      untangle::bind_task(action, 1, std::function<void(int)>([&reported](int) { ++reported; }))));
+
+  EXPECT_TRUE(actuator.reset());
+
+  EXPECT_FALSE(actuator.has_tasks()) << "reset() left a task";
+  actuator.call_tasks();
+  EXPECT_EQ(reported, 0) << "a task queued before reset() fired after it";
+}
+
+TEST(test_actuator, test_reset_is_refused_during_dispatch) {
+  // reset() removes everything, so it is refused while the actuator is dispatching, like remove().
+  untangle::actuator<std::function<int(int)>> actuator;
+  bool reset = true;
+  int bonus = 1;  // not const: a constant is never captured, so never read from the closure
+  actuator.add([&actuator, &reset, bonus](int v) {
+    reset = actuator.reset();
+    return v + bonus;
+  });
+
+  actuator(1);
+  EXPECT_FALSE(reset) << "reset() refused";
+  actuator(2);
+
+  EXPECT_THAT(actuator.results, ::testing::ElementsAre(3)) << "the action is still there";
+  EXPECT_TRUE(actuator.is_connected());
+}
+
+TEST(test_actuator, test_reset_is_refused_during_invoke_action) {
+  untangle::actuator<std::function<int(int)>> actuator;
+  bool reset = true;
+  int bonus = 1;
+  actuator.add("once", [&actuator, &reset, bonus](int v) {
+    reset = actuator.reset();
+    return v + bonus;
+  });
+
+  actuator.invoke_action("once", 1);
+
+  EXPECT_FALSE(reset) << "reset() refused";
+  EXPECT_THAT(actuator.results, ::testing::ElementsAre(2));
+  EXPECT_TRUE(actuator.has_action("once")) << "the action is still there";
+}
+
 TEST(test_actuator, test_invalid_action_is_catchable_as_std_exception) {
   bool caught_as_std_exception = false;
   std::string message;
