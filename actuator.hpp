@@ -984,7 +984,7 @@ actuator<action_t> connect(std::pair<key_t, value_t> A1, Actions&&... An) {
   return target;
 }
 
-// generic helpers to remove const qualifier from a function type,
+// generic helpers to remove the const and noexcept qualifiers from a function type,
 // for instance const member functions
 template <typename T>
 struct function_remove_const;
@@ -996,6 +996,16 @@ struct function_remove_const<R(Args...)> {
 
 template <typename R, typename... Args>
 struct function_remove_const<R(Args...) const> {
+  using type = R(Args...);
+};
+
+template <typename R, typename... Args>
+struct function_remove_const<R(Args...) noexcept> {
+  using type = R(Args...);
+};
+
+template <typename R, typename... Args>
+struct function_remove_const<R(Args...) const noexcept> {
   using type = R(Args...);
 };
 

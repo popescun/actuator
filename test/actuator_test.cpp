@@ -758,6 +758,28 @@ TEST(test_actuator, test_bind_null_pointer_is_a_dead_action) {
   EXPECT_FALSE(actuator_rotate.is_connected());
 }
 
+//! Methods that promise not to throw, which is part of their type.
+struct gauge {
+  int value = 0;
+  int read() noexcept { return value; }
+  int peek() const noexcept { return value; }
+};
+
+TEST(test_actuator, test_bind_noexcept_methods) {
+  // noexcept is part of a method's type, so bind() has to take it as it takes const.
+  const auto g = std::make_shared<gauge>(3);
+
+  std::function<int()> read = untangle::bind(g, &gauge::read);
+  std::function<int()> peek = untangle::bind(g, &gauge::peek);
+  EXPECT_EQ(read(), 3);
+  EXPECT_EQ(peek(), 3);
+
+  std::function<int()> read_raw = untangle::bind(g.get(), &gauge::read);
+  std::function<int()> peek_raw = untangle::bind(g.get(), &gauge::peek);
+  EXPECT_EQ(read_raw(), 3);
+  EXPECT_EQ(peek_raw(), 3);
+}
+
 TEST(test_actuator, test_action_has_callback) {
   int result = 0;
   std::function action = [](int v, std::function<void(int)>& cbk) { return v; };
