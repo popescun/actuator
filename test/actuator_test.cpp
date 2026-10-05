@@ -780,6 +780,46 @@ TEST(test_actuator, test_bind_noexcept_methods) {
   EXPECT_EQ(peek_raw(), 3);
 }
 
+//! A funcref field: a std::function data member, bound like a method.
+struct scaler {
+  std::function<int(int)> scale;
+};
+
+TEST(test_actuator, test_bind_funcref_field_calls_it) {
+  const auto s = std::make_shared<scaler>([](int v) { return v * 2; });
+  std::function<int(int)> action = untangle::bind(s, &scaler::scale);
+
+  EXPECT_EQ(action(5), 10);
+}
+
+TEST(test_actuator, test_bind_funcref_field_reads_it_at_call_time) {
+  // The field is read on each call, so a later assignment is what runs.
+  const auto s = std::make_shared<scaler>([](int v) { return v * 2; });
+  std::function<int(int)> action = untangle::bind(s, &scaler::scale);
+
+  s->scale = [](int v) { return v * 3; };
+  EXPECT_EQ(action(5), 15);
+}
+
+TEST(test_actuator, test_bind_funcref_field_dead_owner_is_a_dead_action) {
+  auto s = std::make_shared<scaler>([](int v) { return v * 2; });
+  std::function<int(int)> action = untangle::bind(s, &scaler::scale);
+  s.reset();
+
+  EXPECT_THROW(action(5), untangle::invalid_action);
+
+  auto actuator_scale = untangle::connect(action);
+  actuator_scale(5);
+  EXPECT_FALSE(actuator_scale.is_connected()) << "a dead binding is dropped";
+}
+
+TEST(test_actuator, test_bind_funcref_field_empty_is_a_dead_action) {
+  const auto s = std::make_shared<scaler>();
+  std::function<int(int)> action = untangle::bind(s, &scaler::scale);
+
+  EXPECT_THROW(action(5), untangle::invalid_action);
+}
+
 TEST(test_actuator, test_action_has_callback) {
   int result = 0;
   std::function action = [](int v, std::function<void(int)>& cbk) { return v; };

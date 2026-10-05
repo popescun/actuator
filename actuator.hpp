@@ -1054,6 +1054,38 @@ action_t bind(const std::shared_ptr<class_t>& obj, T class_t::* method) {
 }
 
 /**
+ * @brief Binding to a funcref field: a std::function data member, called like a method.
+ *
+ * It holds the class object as the method overload does, through a std::weak_ptr, and reads the
+ * field on every call, so a later assignment to the field is what runs.
+ *
+ * @param obj - Class object.
+ * @param field - Pointer to the std::function data member, as &\<class type\>::\<field\>.
+ * @return A std::function that calls the field.
+ *
+ * @remark Invoking this binding throws invalid_action when the class object is gone or the field
+ * is empty, so an \ref actuator drops it either way.
+ *
+ * @ingroup untangle_functions
+ */
+template <typename class_t, typename R, typename... Args>
+std::function<R(Args...)> bind(const std::shared_ptr<class_t>& obj,
+                               std::function<R(Args...)> class_t::* field) {
+  return [wp = std::weak_ptr<class_t>(obj), field](auto&&... args) -> R {
+    // lock() also keeps the object alive for the duration of the call
+    const auto obj_ = wp.lock();
+    if (!obj_) {
+      throw invalid_action("bind: invalid object");
+    }
+    const auto& function = (*obj_).*field;
+    if (!function) {
+      throw invalid_action("bind: empty field");
+    }
+    return function(std::forward<decltype(args)>(args)...);
+  };
+}
+
+/**
  * @brief Binding to a class method.
  *
  * @attention It is not safe to use this binding when the pointed-to object may be destroyed. A null
