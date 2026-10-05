@@ -13,7 +13,8 @@
 /**
  * @brief Interface to \ref untangle::actuator functor.
  */
-#pragma once
+#ifndef UNTANGLE_ACTUATOR_ACTUATOR_HPP
+#define UNTANGLE_ACTUATOR_ACTUATOR_HPP
 
 #include <cstddef>
 #include <exception>
@@ -1148,3 +1149,5 @@ task_t bind_task(action_t action, Args&&... args) {
 }
 
 }  // namespace untangle
+
+#endif  // UNTANGLE_ACTUATOR_ACTUATOR_HPP
