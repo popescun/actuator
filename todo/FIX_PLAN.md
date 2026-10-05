@@ -6,8 +6,8 @@ Everything through step 25 is committed except **step 18**, which is applied and
 **Tests:** 23/23 green — `cd test/build && cmake --build . && ./bin/actuator_test` (baseline was 11/11)
 **Docs:** 0 doxygen warnings; `doc/refman.pdf` is 33 pages (was 21).
 **Source:** findings in `todo`, verified 2026-09-02 by compiling and running probes.
-**2026-10-05 review:** step 27 is fixed (removal is refused during a dispatch), step 28 is open
-(group 8), read at `630683d` from fluxcpp's module review.
+**2026-10-05 review:** steps 27 and 28 (group 8) are fixed, read at `630683d` from fluxcpp's module
+review.
 
 ## Progress
 
@@ -96,7 +96,7 @@ inconsistent for a commit, which is the opposite of atomic. Every such case is f
 | 26 ✅ | I | Doxyfile has no `INPUT`/`OUTPUT_DIRECTORY` | `Doxyfile:61,802,876,1118` | CONFIRMED |
 | **Group 8 — from the 2026-10-05 review** |
 | 27 ✅ | J | an action that removes itself during dispatch is a use-after-free | `:474-528` (`operator()`), `:536` (`invoke_action`), `:707`, `:352` | CONFIRMED (ASan) — fixed: removal refused during a dispatch |
-| 28 | K | `reset()` leaves `tasks`, so the actuator is not empty after it | `:286` | read-only |
+| 28 ✅ | K | `reset()` leaves `tasks`, so the actuator is not empty after it | `:286` | read-only — fixed `9a73b1d` |
 
 ---
 
@@ -768,7 +768,7 @@ itself from inside its own call (intrinsic_interface plan, step 1).
 > cannot remove itself during `invoke_action`, and removal works once the dispatch has returned.
 > 118 of 118, plain and under ASan.
 
-### Step 28 · finding K — `reset()` leaves the tasks
+### Step 28 ✅ · finding K — `reset()` leaves the tasks — DONE (`9a73b1d`)
 `actuator.hpp:286` · read-only
 
 `reset()` clears `actions`, `actions_map`, `results`, `errors` and `owned`, and its doc says the
@@ -776,3 +776,10 @@ actuator is empty afterwards - but `tasks` stays, so `has_tasks()` can be true a
 `call_tasks()` fires what was queued before the reset.
 
 > Proposed: clear `tasks` too, or say in the doc that tasks are kept. Clearing matches "empty".
+>
+> Done: `reset()` clears `tasks`, so it leaves the actuator empty as its doc says. It is also
+> refused during a dispatch, like `remove()` since step 27 - called from an action it destroyed the
+> owned action still running (`heap-use-after-free` under ASan). It returns `bool`: false, changing
+> nothing, while dispatching; true when it emptied the actuator. Nothing outside the actuator's
+> tests calls it. Three tests: tasks cleared, and refused during `operator()` and during
+> `invoke_action`. 121 of 121, plain and under ASan.
