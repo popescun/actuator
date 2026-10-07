@@ -16,8 +16,8 @@ green.
 Four probes run; one step closed as declined, one deleted, two struck, two claims corrected. No
 decision left open.**
 
-**Reopened (2026-10-07) for step 9 — a task's callback may take its result by rvalue.** Fixed,
-not yet committed: 125 of 125 green. See step 9.
+**Reopened (2026-10-07) for step 9 — a task's callback may take its result by rvalue.** Committed
+as `49b7b10`: 125 of 125 green. See step 9.
 
 **Superseded in part (2026-09-28) — the task's *representation* changed; nothing about what a task
 *is* did.** `task<result_t>`, which carried a `call` and a `callback` side by side, and
@@ -258,7 +258,7 @@ check, not a type one — and that is the one hole the parameter cannot close by
 | 5 ✅ | `operator()()` with no arguments | — | PROBED — **DECLINED** |
 | 6 ✅ | `has_tasks()`, `is_connected()` untouched | `:827-857` | CONFIRMED (4 cases) — **DONE** (`beb5fe8`) |
 | 7 ✅ | `README.md`, `tools/make_doc.sh`, and the commits | `README.md`, `doc/` | **DONE** (`beb5fe8`) |
-| 9 ✅ | a task's callback takes its result by rvalue: `void(R&&)`, move-only `R` | `task_callback_for`, `take_callback()` | CONFIRMED (4 cases) — **DONE** (uncommitted) |
+| 9 ✅ | a task's callback takes its result by rvalue: `void(R&&)`, move-only `R` | `task_callback_for`, `take_callback()` | CONFIRMED (4 cases) — **DONE** (`49b7b10`) |
 
 ### Step 1 ✅ · `task_callback_for`, `task_callback_type`, `task<result_t>` — DONE
 
@@ -705,10 +705,10 @@ with its own fix. The plan's own updates are their own commit, and always a late
 | Commit | Step |
 |---|---|
 | `beb5fe8` | 1, 2, 3, 4 and 6 — the whole mechanism, 36 cases, README and the reference |
-| *(uncommitted)* | 9 — a task's callback takes its result by rvalue, 4 cases and the reference |
+| `49b7b10` | 9 — a task's callback takes its result by rvalue, 4 cases and the reference |
 
-**Step 9 (2026-10-07):** fixed and green, 125 of 125, with `doc/refman.pdf` regenerated (64 pages, 0 doxygen warnings). It still
-needs its commit and the pin bump downstream.
+**Step 9 (2026-10-07):** committed as `49b7b10`, 125 of 125 green, `doc/refman.pdf` regenerated
+(64 pages, 0 doxygen warnings). It still needs the pin bump downstream.
 
 **CLOSED.** Every step is done, declined or struck, and all of it is in `beb5fe8`. 99 of 99 green,
 clang-format clean, doxygen clean, `README.md` and `doc/refman.pdf` current. Nothing in this repo is
