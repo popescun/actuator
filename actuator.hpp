@@ -69,8 +69,12 @@ auto last_arg(Args&&... args) {
  * It asks only whether it can serve, never whether it was meant as one: `bind_task()` takes the
  * callback by position. A void result reports *finished*, so its callback takes no argument.
  *
+ * @remark **The result is handed over as an rvalue**, because a task keeps nothing of it: a
+ * callback may take it by value, by const reference or by rvalue reference, and a move-only result
+ * is reported like any other. A callback taking a non-const lvalue reference cannot be handed it.
+ *
  * @attention Both disjuncts are load-bearing: the first yields **false** for a void result rather
- * than failing hard (`void&` in a requires-parameter list is a substitution failure in the
+ * than failing hard (`void&&` in a requires-parameter list is a substitution failure in the
  * immediate context), and the second's `std::is_void_v` guard keeps a `std::function<void()>` from
  * satisfying this for *any* result type.
  *
@@ -79,7 +83,9 @@ auto last_arg(Args&&... args) {
  */
 template <typename callback_t, typename result_t>
 concept task_callback_for =
-    requires(callback_t& c, result_t& r) { requires std::is_void_v<decltype(c(r))>; } ||
+    requires(callback_t& c, result_t&& r) {
+      requires std::is_void_v<decltype(c(std::forward<result_t>(r)))>;
+    } ||
     (std::is_void_v<result_t> &&
      requires(callback_t& c) { requires std::is_void_v<decltype(c())>; });
 
@@ -446,6 +452,10 @@ struct actuator final {
    *
    * @remark The test is \ref invoke_callback()'s own: an action returning void reports nothing, so
    * it has no callback whatever its last argument is.
+   *
+   * @remark It is not \ref task_callback_for, which hands the result over as an rvalue. The result
+   * here stays in actuator::results and is handed over as an lvalue, so a callback taking it by
+   * rvalue reference is an ordinary argument: nothing is moved out of the results.
    */
   template <typename... Args>
   static auto take_callback(Args&... args) {
@@ -456,7 +466,9 @@ struct actuator final {
     } else {
       using last_t = std::decay_t<std::tuple_element_t<sizeof...(Args) - 1, std::tuple<Args...>>>;
 
-      if constexpr (task_callback_for<last_t, result_t>) {
+      if constexpr (requires(last_t& c, result_t& r) {
+                      requires std::is_void_v<decltype(c(r))>;
+                    }) {
         return last_arg(args...);
       } else {
         return no_callback{};
@@ -1160,7 +1172,8 @@ action_t bind(class_t* obj, T class_t::* method) {
  * serve, which is what lets it be required. It is **not** forwarded to the action, which therefore
  * needs no callback parameter of its own -- and a void action is a task like any other.
  *
- * @attention Each argument is copied, so a move-only one does not compile.
+ * @attention Each argument is copied, so a move-only one does not compile. The result is not: it
+ * is moved into the callback, which may take it by rvalue reference -- see \ref task_callback_for.
  *
  * @attention An empty callback or an empty action builds an **empty task**, which
  * \ref actuator::add_task() refuses. Only a callable that can be tested for emptiness is tested, so

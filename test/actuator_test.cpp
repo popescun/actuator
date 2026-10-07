@@ -6,6 +6,8 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include <memory>
+
 #include <actuator.hpp>
 
 namespace untangle::test {
@@ -1031,6 +1033,23 @@ TEST(test_actuator, test_trailing_non_callable_is_not_a_callback) {
   ASSERT_EQ(actuator.results.front(), 5);
 }
 
+TEST(test_actuator, test_trailing_rvalue_callback_is_not_a_callback) {
+  // The result stays in actuator::results, so the actuator hands it over as an lvalue and never
+  // moves from it. A trailing callable taking the result by rvalue reference is an ordinary
+  // argument here, unlike a task's callback.
+  int calls = 0;
+  std::function<void(int&&)> rvalue_sink = [&calls](int&&) { ++calls; };
+  std::function<int(int, std::function<void(int&&)>)> action =
+      [](int v, const std::function<void(int&&)>&) { return v; };
+
+  auto actuator = untangle::connect(action);
+  actuator(7, rvalue_sink);
+
+  ASSERT_EQ(actuator.results.size(), 1);
+  ASSERT_EQ(actuator.results.front(), 7);
+  ASSERT_EQ(calls, 0) << "the actuator moved its own result into a callback";
+}
+
 /**
  * @brief An argument that counts how often it is copied.
  */
@@ -1599,6 +1618,19 @@ TEST(test_actuator, test_task_callback_for_a_void_result_takes_no_argument) {
   static_assert(!untangle::task_callback_for<int_sink, void>);
 }
 
+TEST(test_actuator, test_task_callback_for_takes_the_result_as_an_rvalue) {
+  // A task hands its result over as an rvalue and keeps nothing of it, so a callback may take it
+  // by rvalue reference, and a move-only result may be taken by value.
+  static_assert(untangle::task_callback_for<std::function<void(int&&)>, int>);
+  static_assert(
+      untangle::task_callback_for<std::function<void(std::unique_ptr<int>)>, std::unique_ptr<int>>);
+  static_assert(untangle::task_callback_for<std::function<void(std::unique_ptr<int>&&)>,
+                                            std::unique_ptr<int>>);
+
+  // An rvalue does not bind to a non-const lvalue reference, so this one cannot be handed it.
+  static_assert(!untangle::task_callback_for<std::function<void(int&)>, int>);
+}
+
 TEST(test_actuator, test_a_task_is_one_nullary_callable) {
   // The result type is gone from the task type, because the result never comes back out of a
   // task: it is handed to the callback sealed inside it. So a task is the one thing every task
@@ -1872,6 +1904,36 @@ TEST(test_actuator, test_bind_task_hands_the_result_over_without_copying_it) {
 
   ASSERT_EQ(reported, 42);
   ASSERT_EQ(counted_result::copies, 0) << "handing the result to the callback copied it";
+}
+
+TEST(test_actuator, test_bind_task_moves_the_result_into_an_rvalue_callback) {
+  // The task keeps nothing of its result, so the callback may take ownership of it.
+  std::unique_ptr<int> reported;
+  std::function<std::unique_ptr<int>(int)> action = [](int v) { return std::make_unique<int>(v); };
+
+  auto one = untangle::bind_task(
+      action, 42,
+      std::function<void(std::unique_ptr<int>&&)>(
+          [&reported](std::unique_ptr<int>&& result) { reported = std::move(result); }));
+
+  one();
+
+  ASSERT_NE(reported, nullptr) << "the callback was not handed the result";
+  ASSERT_EQ(*reported, 42);
+}
+
+TEST(test_actuator, test_bind_task_moves_a_move_only_result_into_a_by_value_callback) {
+  std::unique_ptr<int> reported;
+  std::function<std::unique_ptr<int>()> action = [] { return std::make_unique<int>(7); };
+
+  auto one = untangle::bind_task(action, [&reported](std::unique_ptr<int> result) {
+    reported = std::move(result);
+  });
+
+  one();
+
+  ASSERT_NE(reported, nullptr) << "the callback was not handed the result";
+  ASSERT_EQ(*reported, 7);
 }
 
 TEST(test_actuator, test_bind_task_builds_an_empty_task_from_an_empty_callback) {

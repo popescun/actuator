@@ -16,6 +16,9 @@ green.
 Four probes run; one step closed as declined, one deleted, two struck, two claims corrected. No
 decision left open.**
 
+**Reopened (2026-10-07) for step 9 — a task's callback may take its result by rvalue.** Fixed,
+not yet committed: 125 of 125 green. See step 9.
+
 **Superseded in part (2026-09-28) — the task's *representation* changed; nothing about what a task
 *is* did.** `task<result_t>`, which carried a `call` and a `callback` side by side, and
 `task_callback_type`, which named the callback's type, are gone. A task is now
@@ -255,6 +258,7 @@ check, not a type one — and that is the one hole the parameter cannot close by
 | 5 ✅ | `operator()()` with no arguments | — | PROBED — **DECLINED** |
 | 6 ✅ | `has_tasks()`, `is_connected()` untouched | `:827-857` | CONFIRMED (4 cases) — **DONE** (`beb5fe8`) |
 | 7 ✅ | `README.md`, `tools/make_doc.sh`, and the commits | `README.md`, `doc/` | **DONE** (`beb5fe8`) |
+| 9 ✅ | a task's callback takes its result by rvalue: `void(R&&)`, move-only `R` | `task_callback_for`, `take_callback()` | CONFIRMED (4 cases) — **DONE** (uncommitted) |
 
 ### Step 1 ✅ · `task_callback_for`, `task_callback_type`, `task<result_t>` — DONE
 
@@ -616,6 +620,40 @@ by `operator()` and then `call_tasks()`, with `results` and `errors` carrying en
 is step 4's, since `call_tasks()` is what makes the combination observable, and it is recorded there
 rather than deferred to a suite step.
 
+### Step 9 ✅ · a task's callback takes its result by rvalue — DONE
+
+Added 2026-10-07. Numbered 9 because 8 was the struck suite step that the Order section still
+names.
+
+**The concept and the call disagreed.** `task_callback_for` asked whether the callback could be
+called with an **lvalue** result, `requires(callback_t& c, result_t& r) { c(r) }`, while
+`bind_task()` calls it with an **rvalue**, `callback(std::apply(action, bound))`:
+
+| Callback | Before | After |
+|---|---|---|
+| `void(R)`, `void(const R&)` | taken | taken |
+| `void(R&&)` | refused by the `static_assert` | **taken** |
+| `void(std::unique_ptr<T>)` | refused by the `static_assert` | **taken** |
+| `void(R&)` | passed the `static_assert`, then failed inside the task lambda | refused by the `static_assert` |
+
+**Fix:** `task_callback_for` now asks with `result_t&&` and `std::forward<result_t>(r)`. A void
+result still fails as a substitution failure, so the `void()` disjunct is unchanged.
+
+**The actions path is unchanged, by decision.** `take_callback()` used `task_callback_for` too, but
+an action's result stays in `actuator::results` and is handed to the callback as an lvalue, so
+nothing is moved out of it. It now has its own lvalue test, the same one `invoke_callback()` uses.
+A trailing `void(R&&)` is an ordinary argument there.
+
+**Cases:** `test_task_callback_for_takes_the_result_as_an_rvalue`,
+`test_bind_task_moves_the_result_into_an_rvalue_callback`,
+`test_bind_task_moves_a_move_only_result_into_a_by_value_callback`, and the guard
+`test_trailing_rvalue_callback_is_not_a_callback`. The first three were red before the fix; the
+guard was green both before and after. Bound arguments are still copied; only the result moves.
+
+**Downstream:** async and executor only forward to `bind_task()`, so they pick this up with the
+pin bump and need no code change. The copy at `executor/async/actuator` stays on the old pin until
+then.
+
 ### Struck — "the actions path has never been tested"
 
 **Withdrawn 2026-09-25, the day it was written.** It claimed `grep -i callback` over `test/` and
@@ -667,6 +705,10 @@ with its own fix. The plan's own updates are their own commit, and always a late
 | Commit | Step |
 |---|---|
 | `beb5fe8` | 1, 2, 3, 4 and 6 — the whole mechanism, 36 cases, README and the reference |
+| *(uncommitted)* | 9 — a task's callback takes its result by rvalue, 4 cases and the reference |
+
+**Step 9 (2026-10-07):** fixed and green, 125 of 125, with `doc/refman.pdf` regenerated (64 pages, 0 doxygen warnings). It still
+needs its commit and the pin bump downstream.
 
 **CLOSED.** Every step is done, declined or struck, and all of it is in `beb5fe8`. 99 of 99 green,
 clang-format clean, doxygen clean, `README.md` and `doc/refman.pdf` current. Nothing in this repo is
