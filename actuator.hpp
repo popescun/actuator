@@ -7,6 +7,7 @@
 #define UNTANGLE_ACTUATOR_ACTUATOR_HPP
 
 #include <cstddef>
+#include <deque>
 #include <exception>
 #include <functional>
 #include <list>
@@ -200,11 +201,12 @@ struct actuator final {
    * @remark The elements are **values**, not pointers: identity is what \ref remove() needs of an
    * action, and no one removes a single task -- \ref call_tasks() consumes the whole list.
    *
-   * @remark A std::list, as \ref owned is -- adding never invalidates the address of an element
-   * already in it, so a reference taken into the list stays good. It names no result type, because
+   * @remark A std::deque, which stores its tasks in blocks: a queue adds one per submission, and a
+   * std::list paid an allocation for each. Nothing keeps a reference into it - \ref call_tasks()
+   * takes the whole list before it fires a task. It names no result type, because
    * \ref untangle::task_t does not.
    */
-  using tasks_t = std::list<task_t>;
+  using tasks_t = std::deque<task_t>;
   using result_t = std::conditional<std::is_void<typename action_t::result_type>::value, int,
                                     typename action_t::result_type>;
   /**

@@ -8,6 +8,8 @@ Everything through step 25 is committed except **step 18**, which is applied and
 **Source:** findings in `todo`, verified 2026-09-02 by compiling and running probes.
 **2026-10-05 review:** steps 27 and 28 (group 8) are fixed, read at `630683d` from fluxcpp's module
 review.
+**2026-10-09 — step 29 (group 9), for the executor:** the tasks are a `std::deque`, not a
+`std::list`, saving an allocation per task added (uncommitted).
 
 ## Progress
 
@@ -97,6 +99,8 @@ inconsistent for a commit, which is the opposite of atomic. Every such case is f
 | **Group 8 — from the 2026-10-05 review** |
 | 27 ✅ | J | an action that removes itself during dispatch is a use-after-free | `:474-528` (`operator()`), `:536` (`invoke_action`), `:707`, `:352` | CONFIRMED (ASan) — fixed: removal refused during a dispatch |
 | 28 ✅ | K | `reset()` leaves `tasks`, so the actuator is not empty after it | `:286` | read-only — fixed `9a73b1d` |
+| **Group 9 — for the executor** |
+| 29 ✅ | L | the tasks are a `std::list`: one allocation per task added | `:207` (`tasks_t`) | measured (scratchpad harness) — fixed (uncommitted) |
 
 ---
 
@@ -783,3 +787,32 @@ actuator is empty afterwards - but `tasks` stays, so `has_tasks()` can be true a
 > nothing, while dispatching; true when it emptied the actuator. Nothing outside the actuator's
 > tests calls it. Three tests: tasks cleared, and refused during `operator()` and during
 > `invoke_action`. 121 of 121, plain and under ASan.
+
+## Group 9 — for the executor
+
+### Step 29 ✅ · finding L — the tasks are a `std::list`: one allocation per task added — DONE
+`actuator.hpp:207` (`tasks_t`) · measured, 2026-10-09, at `1ff3b79`
+
+**Found from the executor's** `bench/qt_pool_vs_this`: with real work, `QThreadPool` submitted 1000
+tasks in 21-32 µs against the executor's 36-39. A worker busy with real work lets every submitted
+task wait in its queue - async's `action_actuator_.tasks` - so storing one is on the submitter's
+path. Profiled (scratchpad, one worker held so 1000 tasks queue): two allocations per task took half
+the submit - the sealed task in `bind_task()` (~26%; it does not fit `std::function`'s small buffer)
+and this list's node (~22%).
+
+**Fixed:** `tasks_t` is a `std::deque<task_t>`, which allocates a block per several tasks. Nothing
+holds a reference into the tasks - `call_tasks()` swaps the whole container out before it fires one -
+so the list's stable addresses bought nothing; the remark that said so is rewritten. `std::vector`
+measured no better, and worse at 4 workers.
+
+| submit of 1000, median µs, two runs | `std::list` | `std::deque` | `std::vector` |
+|---|---|---|---|
+| one worker held, all queued | 27.5-28.4 | 22.8-25.1 | 22.6-23.3 |
+| real work, 1 worker | 26.9-27.2 | 23.5-23.7 | 24.0-24.9 |
+| real work, 4 workers | 37.1-37.9 | 33.3-33.6 | 35.1-36.8 |
+
+The sealed task's own allocation stays: removing it needs a task type with a larger inline buffer
+than `std::function`'s, an API change not taken (user, 2026-10-09).
+
+**Test (a guard):** `test_a_task_added_while_the_tasks_run_waits_for_the_next_pass` - a callback
+adds 39 tasks during `call_tasks()`: none runs in that pass, all run in order in the next. 126 of 126.

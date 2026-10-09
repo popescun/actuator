@@ -2241,6 +2241,34 @@ TEST(test_actuator, test_call_tasks_consumes_the_tasks) {
   ASSERT_EQ(calls, 1) << "a task ran twice";
 }
 
+TEST(test_actuator, test_a_task_added_while_the_tasks_run_waits_for_the_next_pass) {
+  // The pass takes the tasks it fires before it fires them, so one a callback adds - here, many -
+  // runs on the next pass, and this one ends.
+  std::vector<int> order;
+  untangle::actuator<std::function<int(int)>> actuator;
+  std::function<int(int)> action = [](int n) { return n; };
+
+  ASSERT_TRUE(actuator.add_task(untangle::bind_task(
+      action, 1, std::function<void(int)>([&order, &actuator, &action](int r) {
+        order.push_back(r);
+        for (int i = 2; i <= 40; ++i) {
+          actuator.add_task(untangle::bind_task(
+              action, i,
+              std::function<void(int)>([&order](int added) { order.push_back(added); })));
+        }
+      }))));
+
+  actuator.call_tasks();
+  ASSERT_THAT(order, testing::ElementsAre(1)) << "a task added during the pass ran in it";
+  ASSERT_EQ(actuator.tasks.size(), 39u);
+
+  actuator.call_tasks();
+  ASSERT_EQ(order.size(), 40u);
+  for (int i = 0; i < 40; ++i) {
+    ASSERT_EQ(order[i], i + 1) << "the next pass ran them out of order";
+  }
+}
+
 TEST(test_actuator, test_call_tasks_notifies_a_void_task_with_nothing) {
   // The half an action's callback convention has no answer for: finished is the whole message.
   int ran = 0;
