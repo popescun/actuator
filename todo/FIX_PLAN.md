@@ -10,6 +10,10 @@ Everything through step 25 is committed except **step 18**, which is applied and
 review.
 **2026-10-09 — step 29 (group 9), for the executor:** the tasks are a `std::deque`, not a
 `std::list`, saving an allocation per task added (uncommitted).
+**2026-10-10 — steps 30 and 31 (group 9), from the executor's performance group** (its group 9,
+benched against `QThreadPool`): `bind_task()` takes the action by value (30, with async's step 54 and
+the executor's 34 the change the benchmark shows), and `call_tasks()` frees the storage it fires from
+(31, optional - a Qt-free gain only).
 
 ## Progress
 
@@ -101,6 +105,8 @@ inconsistent for a commit, which is the opposite of atomic. Every such case is f
 | 28 ✅ | K | `reset()` leaves `tasks`, so the actuator is not empty after it | `:286` | read-only — fixed `9a73b1d` |
 | **Group 9 — for the executor** |
 | 29 ✅ | L | the tasks are a `std::list`: one allocation per task added | `:207` (`tasks_t`) | measured (scratchpad harness) — fixed (uncommitted) |
+| 30 | M | `bind_task()` takes the action by value, a move more per task | `:1191` (`bind_task`) | CONFIRMED (executor benchmark, the fix alone) — OPEN |
+| 31 | N | `call_tasks()` frees the storage it fires from | `:617` (`call_tasks`) | CONFIRMED (Qt-free probe), not in the benchmark — OPEN, optional |
 
 ---
 
@@ -816,3 +822,33 @@ than `std::function`'s, an API change not taken (user, 2026-10-09).
 
 **Test (a guard):** `test_a_task_added_while_the_tasks_run_waits_for_the_next_pass` - a callback
 adds 39 tasks during `call_tasks()`: none runs in that pass, all run in order in the next. 126 of 126.
+
+### Step 30 · finding M — `bind_task()` takes the action by value, a move more per task — OPEN
+`actuator.hpp:1191` (`bind_task`) · CONFIRMED by the executor's `bench/qt_pool_vs_this`, 2026-10-10,
+at `fccaad1`
+
+`bind_task(action_t action, Args&&...)` takes the action by value, then moves it into the lambda's
+capture; async's `add_task()` has already taken it by value and moved it in. One of the five moves
+the executor's step 34 counts between its door and the queue - a `std::function` in the small buffer
+moves by a clone through its vtable. Cut together with async's step 54 and the executor's own, the
+executor submits 15-20% faster with real work, level with `QThreadPool`.
+
+**Proposed:** a forwarding reference, `action_t` its decayed type, and the action forwarded straight
+into the capture. Callers are unchanged: an lvalue is copied once, an rvalue moved once. The
+emptiness check reads it by reference before anything is moved.
+
+**Tests first.** A counting callable as the action: one move from an rvalue into the task, one copy
+from an lvalue - failing today. Guards: an empty action still builds an empty task.
+
+**Order:** first of the three; async's step 54 follows.
+
+### Step 31 · finding N — `call_tasks()` frees the storage it fires from — OPEN, optional
+`actuator.hpp:617` (`call_tasks`) · CONFIRMED by a Qt-free probe, 2026-10-10; not visible in the
+executor's benchmark
+
+`call_tasks()` swaps the tasks into a local deque, fires them, and lets the local free its blocks.
+A queue that reuses its storage (async's step 55) needs them back: emptied, and swapped into `tasks`
+when nothing was added meanwhile - a callback that adds a task still adds it to the next pass, as the
+guard of step 29 requires. On its own it saves nothing; with async's step 55, one allocation per task
+instead of up to 2.8 when a worker keeps up with trivial tasks. See the executor's step 35, and its
+reason this is optional.
