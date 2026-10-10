@@ -1177,11 +1177,16 @@ action_t bind(class_t* obj, T class_t::* method) {
  * @attention Each argument is copied, so a move-only one does not compile. The result is not: it
  * is moved into the callback, which may take it by rvalue reference -- see \ref task_callback_for.
  *
+ * @remark **The action goes into the task once**: copied from an lvalue, moved from an rvalue, and
+ * not moved again on the way. A queue builds a task per submission, so a by-value parameter here
+ * would be a move more for every one.
+ *
  * @attention An empty callback or an empty action builds an **empty task**, which
  * \ref actuator::add_task() refuses. Only a callable that can be tested for emptiness is tested, so
  * a bare lambda is never refused.
  *
- * @tparam action_t Type of the action; any callable naming a result_type will do.
+ * @tparam action_t Type of the action as passed: a reference for an lvalue, so its decayed type is
+ * the one stored, and that may be any callable naming a result_type.
  * @tparam Args Types of the arguments to bind, of which the last is the callback.
  * @param action - The action to bind.
  * @param args - The arguments to bind to \p action, followed by the callback to notify.
@@ -1189,8 +1194,8 @@ action_t bind(class_t* obj, T class_t::* method) {
  * @return The task, or an empty one -- see above.
  */
 template <typename action_t, typename... Args>
-task_t bind_task(action_t action, Args&&... args) {
-  using result_t = typename action_t::result_type;
+task_t bind_task(action_t&& action, Args&&... args) {
+  using result_t = typename std::decay_t<action_t>::result_type;
 
   static_assert(sizeof...(Args) > 0,
                 "bind_task: a task must be given a callback as its last argument");
@@ -1213,7 +1218,7 @@ task_t bind_task(action_t action, Args&&... args) {
       return {};
     }
   }
-  if constexpr (testable_for_emptiness<action_t>) {
+  if constexpr (testable_for_emptiness<std::decay_t<action_t>>) {
     if (!action) {
       return {};
     }
@@ -1224,7 +1229,7 @@ task_t bind_task(action_t action, Args&&... args) {
   // than into a capture pack: an init-capture pack expanded in a dependent context crashes GCC 14
   // (an ICE in tsubst_pack_expansion), and a tuple says the same thing in an ordinary expression.
   return [&]<std::size_t... i>(std::index_sequence<i...>) -> task_t {
-    return [action = std::move(action), callback = callback_t(std::get<last>(pack)),
+    return [action = std::forward<action_t>(action), callback = callback_t(std::get<last>(pack)),
             bound = std::tuple<std::decay_t<decltype(std::get<i>(pack))>...>(
                 std::get<i>(pack)...)]() mutable -> void {
       if constexpr (std::is_void_v<result_t>) {

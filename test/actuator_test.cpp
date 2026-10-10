@@ -1867,6 +1867,80 @@ TEST(test_actuator, test_bind_task_accepts_an_action_type_that_is_not_a_std_func
   ASSERT_EQ(reported, 42);
 }
 
+/**
+ * @brief An action type that records whether it was copied or moved.
+ *
+ * Not a std::function, so what is counted is the action itself rather than a wrapper around it.
+ */
+struct counted_action {
+  using result_type = int;
+
+  static inline int copies = 0;
+  static inline int moves = 0;
+  static void reset() {
+    copies = 0;
+    moves = 0;
+  }
+
+  counted_action() = default;
+  counted_action(const counted_action&) { ++copies; }
+  counted_action(counted_action&&) noexcept { ++moves; }
+  counted_action& operator=(const counted_action&) = default;
+  counted_action& operator=(counted_action&&) = default;
+
+  int operator()(int n) const { return n; }
+};
+
+/**
+ * @brief How many times task_t moves a callable it is built from - the standard library's share.
+ *
+ * A task is a lambda holding the action, erased into a std::function; how often that erasure moves
+ * its lambda differs between standard libraries. The tests below allow for it and count only what
+ * bind_task() adds.
+ */
+int moves_to_erase_a_task() {
+  counted_action::reset();
+  untangle::task_t erased = [action = counted_action{}] { (void)action(0); };
+  (void)erased;
+  return counted_action::moves;
+}
+
+TEST(test_actuator, test_bind_task_moves_an_action_given_as_an_rvalue_once) {
+  // What a queue does: async's add_task() hands its action over with std::move(). The action goes
+  // into the task once; a by-value parameter on the way is a move more for every task submitted.
+  const int erasure = moves_to_erase_a_task();
+  counted_action action;
+  int reported = 0;
+
+  counted_action::reset();
+  auto one = untangle::bind_task(std::move(action), 7,
+                                 std::function<void(int)>([&reported](int r) { reported = r; }));
+
+  EXPECT_EQ(counted_action::copies, 0) << "an action given as an rvalue was copied";
+  EXPECT_EQ(counted_action::moves, erasure + 1)
+      << "the action was moved more than once on its way into the task";
+
+  one();
+  ASSERT_EQ(reported, 7);
+}
+
+TEST(test_actuator, test_bind_task_copies_an_action_given_as_an_lvalue_once) {
+  // The caller keeps its action, so the task needs a copy of its own - one, made straight into it.
+  const int erasure = moves_to_erase_a_task();
+  counted_action action;
+  int reported = 0;
+
+  counted_action::reset();
+  auto one = untangle::bind_task(action, 7,
+                                 std::function<void(int)>([&reported](int r) { reported = r; }));
+
+  EXPECT_EQ(counted_action::copies, 1) << "the task does not hold one copy of the caller's action";
+  EXPECT_EQ(counted_action::moves, erasure) << "the copy was moved on its way into the task";
+
+  one();
+  ASSERT_EQ(reported, 7);
+}
+
 TEST(test_actuator, test_two_tasks_from_one_action_keep_their_own_arguments_and_callbacks) {
   // What lets a container of tasks exist: the arguments live in the task, not in the action, so one
   // action yields tasks that differ in what they run with and in who they report to.
