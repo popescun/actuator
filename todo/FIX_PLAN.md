@@ -9,11 +9,14 @@ Everything through step 25 is committed except **step 18**, which is applied and
 **2026-10-05 review:** steps 27 and 28 (group 8) are fixed, read at `630683d` from fluxcpp's module
 review.
 **2026-10-09 — step 29 (group 9), for the executor:** the tasks are a `std::deque`, not a
-`std::list`, saving an allocation per task added (uncommitted).
+`std::list`, saving an allocation per task added (`fccaad1`).
 **2026-10-10 — steps 30 and 31 (group 9), from the executor's performance group** (its group 9,
 benched against `QThreadPool`): `bind_task()` takes the action by value (30, with async's step 54 and
 the executor's 34 the change the benchmark shows), and `call_tasks()` frees the storage it fires from
 (31, optional - a Qt-free gain only).
+**2026-10-10 — step 30 done (`f21a58b`):** `bind_task()` takes the action by forwarding reference and
+moves it into the task once. 128 of 128, plain and under ASan; async's 74 and the executor's 55 on
+Debug, ASan and TSan against it; `doc/refman.pdf` at 64 pages.
 
 ## Progress
 
@@ -104,8 +107,8 @@ inconsistent for a commit, which is the opposite of atomic. Every such case is f
 | 27 ✅ | J | an action that removes itself during dispatch is a use-after-free | `:474-528` (`operator()`), `:536` (`invoke_action`), `:707`, `:352` | CONFIRMED (ASan) — fixed: removal refused during a dispatch |
 | 28 ✅ | K | `reset()` leaves `tasks`, so the actuator is not empty after it | `:286` | read-only — fixed `9a73b1d` |
 | **Group 9 — for the executor** |
-| 29 ✅ | L | the tasks are a `std::list`: one allocation per task added | `:207` (`tasks_t`) | measured (scratchpad harness) — fixed (uncommitted) |
-| 30 | M | `bind_task()` takes the action by value, a move more per task | `:1191` (`bind_task`) | CONFIRMED (executor benchmark, the fix alone) — OPEN |
+| 29 ✅ | L | the tasks are a `std::list`: one allocation per task added | `:207` (`tasks_t`) | measured (scratchpad harness) — fixed `fccaad1` |
+| 30 ✅ | M | `bind_task()` takes the action by value, a move more per task | `:1191` (`bind_task`) | CONFIRMED (tests, executor benchmark) — fixed `f21a58b` |
 | 31 | N | `call_tasks()` frees the storage it fires from | `:617` (`call_tasks`) | CONFIRMED (Qt-free probe), not in the benchmark — OPEN, optional |
 
 ---
@@ -823,7 +826,7 @@ than `std::function`'s, an API change not taken (user, 2026-10-09).
 **Test (a guard):** `test_a_task_added_while_the_tasks_run_waits_for_the_next_pass` - a callback
 adds 39 tasks during `call_tasks()`: none runs in that pass, all run in order in the next. 126 of 126.
 
-### Step 30 · finding M — `bind_task()` takes the action by value, a move more per task — OPEN
+### Step 30 ✅ · finding M — `bind_task()` takes the action by value, a move more per task — DONE
 `actuator.hpp:1191` (`bind_task`) · CONFIRMED by the executor's `bench/qt_pool_vs_this`, 2026-10-10,
 at `fccaad1`
 
@@ -841,6 +844,24 @@ emptiness check reads it by reference before anything is moved.
 from an lvalue - failing today. Guards: an empty action still builds an empty task.
 
 **Order:** first of the three; async's step 54 follows.
+
+**Decided (user, 2026-10-10): the template parameter stays `action_t`**, as everywhere else in the
+header - here the type as passed, a reference for an lvalue - and the decayed type is spelled
+`std::decay_t<action_t>` where it is needed, rather than a second name.
+
+**Tests (written first, failing):** `test_bind_task_moves_an_action_given_as_an_rvalue_once` - an
+action handed over with `std::move()`, as async's `add_task()` does: 0 copies and one move beyond what
+`task_t`'s type erasure costs - moved twice; `test_bind_task_copies_an_action_given_as_an_lvalue_once`
+- a named action: one copy and no move beyond the erasure - moved once. `counted_action` counts its
+copies and moves; `moves_to_erase_a_task()` measures the standard library's share (1 on libc++),
+which differs from libstdc++'s, so the tests count `bind_task()`'s alone. A temporary is not tested:
+its copy is elided before and after. 126 of 128.
+
+**Landed in `f21a58b`.** `bind_task(action_t&& action, Args&&...)`, the action forwarded into the
+capture; `result_type` and the emptiness check read `std::decay_t<action_t>`. A remark says the action
+goes into the task once, and why. 128 of 128, plain and under ASan; async's 74 of 74 and the
+executor's 55 of 55 on Debug, ASan and TSan against it; `doc/refman.pdf` at 64 pages, no doxygen
+warning from the header.
 
 ### Step 31 · finding N — `call_tasks()` frees the storage it fires from — OPEN, optional
 `actuator.hpp:617` (`call_tasks`) · CONFIRMED by a Qt-free probe, 2026-10-10; not visible in the
