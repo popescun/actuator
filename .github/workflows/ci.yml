@@ -53,7 +53,7 @@ jobs:
       # test/CMakeLists.txt requires CMake 4.1, which is newer than some runner
       # images ship. Installing it via pip pins the same version on all three.
       - name: Install CMake
-        run: pip install "cmake>=4.1"
+        run: pip install "cmake>=4.1" ninja
 
       - name: Show versions
         shell: bash
@@ -61,16 +61,25 @@ jobs:
           cmake --version | head -1
           git ls-files '*.hpp' '*.cpp' | wc -l | sed 's/^/tracked sources: /'
 
+      # Ninja does not find MSVC on its own the way the Visual Studio generator does. This runs
+      # vcvarsall, so cl.exe and its INCLUDE and LIB reach the steps below. Windows only.
+      - name: Set up MSVC
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+
+      # The presets live in test/CMakePresets.json, so cmake --preset is run from there. The release
+      # preset builds into test/build-release. No build presets: CLion lists each as a duplicate
+      # profile, so Build names the preset's binaryDir.
       - name: Configure
-        run: cmake -S test -B test/build -DCMAKE_BUILD_TYPE=Release
+        working-directory: test
+        run: cmake --preset release
 
-      # --config matters on multi-config generators (Visual Studio); it is
-      # ignored elsewhere, so one command covers all three platforms.
       - name: Build
-        run: cmake --build test/build --config Release
+        working-directory: test
+        run: cmake --build build-release
 
-      # gtest_discover_tests() registers every TEST() with CTest, so a failure
-      # names the case instead of reporting the whole binary as one pass/fail.
-      # --build-config matters on multi-config generators (Visual Studio).
+      # The release test preset carries --output-on-failure and noTestsAction=error: every TEST()
+      # is registered by gtest_discover_tests, so an empty suite means discovery failed.
       - name: Test
-        run: ctest --test-dir test/build --build-config Release --output-on-failure
+        working-directory: test
+        run: ctest --preset release
