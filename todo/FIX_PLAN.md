@@ -21,7 +21,9 @@ Debug, ASan and TSan against it; `doc/refman.pdf` at 64 pages.
 (read-only, at `ab7ff02`): the actions are a `std::list` walked by iterator (32), and the trailing
 callback is copied on every dispatch (33). 32 is measured the same day with a scratchpad prototype -
 a `std::vector` dispatches about 20% faster at 1000 receivers and no faster at 1 or 8 - and taken
-(user: a real gain is worth it), uncommitted. 33 is OPEN, still to bench.
+(user: a real gain is worth it), in `46678fe`. 33 is measured too - holding an lvalue callback by
+reference saves about 1 ns a dispatch, visible only at one receiver - and declined (user: not worth
+the change). Group 10 is closed.
 
 ## Progress
 
@@ -116,8 +118,8 @@ inconsistent for a commit, which is the opposite of atomic. Every such case is f
 | 30 ✅ | M | `bind_task()` takes the action by value, a move more per task | `:1191` (`bind_task`) | CONFIRMED (tests, executor benchmark) — fixed `f21a58b` |
 | 31 | N | `call_tasks()` frees the storage it fires from | `:617` (`call_tasks`) | CONFIRMED (Qt-free probe), not in the benchmark — OPEN, optional |
 | **Group 10 — dispatch path, 2026-10-14 re-read** |
-| 32 ✅ | O | the actions are a `std::list`: a node hop per receiver on every dispatch | `:196` (`actions_t`), `:510` (`operator()`), `:742` (`remove`) | measured (scratchpad prototype, `qt_vs_this`) — ~20% faster at 1000 receivers, none at 1 or 8; fixed *(uncommitted)* |
-| 33 | P | the trailing callback is copied on every dispatch, even from an lvalue | `:463` (`take_callback`), `:502`, `:567` | read-only — OPEN, to bench |
+| 32 ✅ | O | the actions are a `std::list`: a node hop per receiver on every dispatch | `:196` (`actions_t`), `:510` (`operator()`), `:742` (`remove`) | measured (scratchpad prototype, `qt_vs_this`) — ~20% faster at 1000 receivers, none at 1 or 8; fixed `46678fe` |
+| 33 ✅ | P | the trailing callback is copied on every dispatch, even from an lvalue | `:463` (`take_callback`), `:502`, `:567` | measured (scratchpad prototype, `qt_vs_this`) — ~1 ns (0.84) at 1 receiver, none at 8 or 1000; DECLINED (user, 2026-10-14) |
 
 ---
 
@@ -892,7 +894,7 @@ steps 28-41 and async's 51-57; what is left is the synchronous dispatch path, he
 measured: each is to be prototyped in a scratchpad copy and run through intrinsic_interface's
 `bench/qt_vs_this` before anything is planned.
 
-### Step 32 ✅ · finding O — the actions are a `std::list`: a node hop per receiver — DONE *(uncommitted)*
+### Step 32 ✅ · finding O — the actions are a `std::list`: a node hop per receiver — DONE (`46678fe`)
 `actuator.hpp:196` (`actions_t`), `:510` (`operator()`), `:742` (`remove`) · read-only, 2026-10-14,
 at `ab7ff02`
 
@@ -953,7 +955,7 @@ The other cases at 1 and 8 receivers land at 0.98-1.05.
 
 **Decided (user, 2026-10-14): taken** - a real gain is worth the change to the public type.
 
-**Applied (uncommitted):** `actions_t` is a `std::vector<action_t*>`; `operator()` goes by index, the
+**Landed in `46678fe`.** `actions_t` is a `std::vector<action_t*>`; `operator()` goes by index, the
 size re-read and the pointer copied out before the call; `remove()` uses `std::erase`; the remark on
 `actions_t` says why, and that an action added mid-dispatch is still called in the same pass.
 `<list>` stays, for `owned`. The guard test, written first, passed on the list and passes on the
@@ -962,7 +964,7 @@ ASan and TSan; async 77 of 77 and the executor 54 of 54 on Debug, ASan and TSan,
 header copied into `executor/async/actuator` for the run and restored after. clang-format clean on
 the changed lines; `doc/refman.pdf` regenerated, 64 pages.
 
-### Step 33 · finding P — the trailing callback is copied on every dispatch — OPEN, to bench
+### Step 33 ✅ · finding P — the trailing callback is copied on every dispatch — DECLINED
 `actuator.hpp:463` (`take_callback`), `:502` (`operator()`), `:567` (`invoke_action`) · read-only,
 2026-10-14, at `ab7ff02`
 
@@ -980,3 +982,37 @@ only direct users of the actuator and intrinsic_interface would.
 
 **Tests first:** a counting callback passed as an lvalue - 0 copies per dispatch, failing today;
 guard: an rvalue callback is still copied once, and every receiver still gets it intact.
+
+**Measured (2026-10-14, on top of step 32's vector):** a scratchpad copy of `actuator.hpp`.
+`take_callback()` returns `std::ref` to the callback instead of a copy when (a) it was passed as an
+lvalue and (b) the action's last parameter is not a non-const lvalue reference - an action taking
+one could move the callback out before the next receiver gets it. Otherwise it copies, as today. (b)
+reads the parameter through a `last_param<action_t>` trait over `std::function<R(P...)>`; anything
+else answers void and keeps the copy. Both call sites pass their pack explicitly,
+`take_callback<Args...>(args...)`, since the deduced pack of named arguments is all lvalues.
+
+Tests, in the scratchpad suite (132 of 132 on Debug with the change):
+- `test_an_lvalue_callback_is_not_copied` - 0 copies, 2 calls; **fails on the current code** (1 copy).
+- `test_an_rvalue_callback_is_still_copied_once` - 1 copy; the guard, as today.
+- `test_a_callback_an_action_may_change_is_still_copied` - a `counted_callback&` parameter: 1 copy.
+
+intrinsic_interface's `bench/qt_vs_this`, Release, three runs each taking turns, same machine as
+step 32. `int -> callback` (the bench passes `counted.done`, an lvalue `std::function` whose lambda
+captures `this`, so the copy is a small-buffer clone, no allocation), ns per dispatch:
+
+| recv | copy (today) | by reference | ref/copy (middle run) |
+|---:|---|---|---:|
+| 1 | 6.8, 8.4, 7.0 | 5.8, 5.9, 6.0 | **0.84** |
+| 8 | 30.8, 34.2, 31.7 | 30.0, 31.3, 31.7 | 0.99 |
+| 1000 | 5172, 5020, 4883 | 4774, 4998, 4997 | 1.00 |
+
+- **About 1 ns per dispatch**, the copy being once per dispatch, not per receiver: visible at one
+  receiver (every by-reference run below every copy run), lost at 8 and 1000.
+- **Noise:** the rows this change does not touch moved 0.81-1.16 both ways in the same runs, so
+  only the 1-receiver callback row stands out.
+- **Who gains:** direct users of the actuator and intrinsic_interface dispatching to one receiver with
+  a callback. Flux passes none.
+
+**Decided (user, 2026-10-14): declined** - not worth the change. About 1 ns in one case does not pay
+for a parameter trait and a less obvious `take_callback()`, and flux, which passes no callbacks,
+gains nothing. The copy stays; the prototype and its tests stayed in the scratchpad.
