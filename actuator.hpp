@@ -83,12 +83,11 @@ auto last_arg(Args&&... args) {
  * @tparam result_t Result type of the task it reports on.
  */
 template <typename callback_t, typename result_t>
-concept task_callback_for =
-    requires(callback_t& c, result_t&& r) {
-      requires std::is_void_v<decltype(c(std::forward<result_t>(r)))>;
-    } ||
-    (std::is_void_v<result_t> &&
-     requires(callback_t& c) { requires std::is_void_v<decltype(c())>; });
+concept task_callback_for = requires(callback_t& c, result_t&& r) {
+  requires std::is_void_v<decltype(c(std::forward<result_t>(r)))>;
+} || (std::is_void_v<result_t> && requires(callback_t& c) {
+                              requires std::is_void_v<decltype(c())>;
+                            });
 
 /**
  * @brief Can \p callable_t say whether it is empty?
@@ -472,9 +471,7 @@ struct actuator final {
     } else {
       using last_t = std::decay_t<std::tuple_element_t<sizeof...(Args) - 1, std::tuple<Args...>>>;
 
-      if constexpr (requires(last_t& c, result_t& r) {
-                      requires std::is_void_v<decltype(c(r))>;
-                    }) {
+      if constexpr (requires(last_t& c, result_t& r) { requires std::is_void_v<decltype(c(r))>; }) {
         return last_arg(args...);
       } else {
         return no_callback{};

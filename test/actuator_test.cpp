@@ -6,9 +6,8 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
-#include <memory>
-
 #include <actuator.hpp>
+#include <memory>
 
 namespace untangle::test {
 
@@ -2021,9 +2020,8 @@ TEST(test_actuator, test_bind_task_moves_a_move_only_result_into_a_by_value_call
   std::unique_ptr<int> reported;
   std::function<std::unique_ptr<int>()> action = [] { return std::make_unique<int>(7); };
 
-  auto one = untangle::bind_task(action, [&reported](std::unique_ptr<int> result) {
-    reported = std::move(result);
-  });
+  auto one = untangle::bind_task(
+      action, [&reported](std::unique_ptr<int> result) { reported = std::move(result); });
 
   one();
 
