@@ -17,6 +17,10 @@ the executor's 34 the change the benchmark shows), and `call_tasks()` frees the 
 **2026-10-10 — step 30 done (`f21a58b`):** `bind_task()` takes the action by forwarding reference and
 moves it into the task once. 128 of 128, plain and under ASan; async's 74 and the executor's 55 on
 Debug, ASan and TSan against it; `doc/refman.pdf` at 64 pages.
+**2026-10-14 — steps 32 and 33 (group 10), from a performance re-read of the dispatch path**
+(read-only, at `ab7ff02`, neither measured yet): the actions are a `std::list` walked by iterator
+(32), and the trailing callback is copied on every dispatch (33). Both OPEN, to prototype and bench
+before planning a change.
 
 ## Progress
 
@@ -110,6 +114,9 @@ inconsistent for a commit, which is the opposite of atomic. Every such case is f
 | 29 ✅ | L | the tasks are a `std::list`: one allocation per task added | `:207` (`tasks_t`) | measured (scratchpad harness) — fixed `fccaad1` |
 | 30 ✅ | M | `bind_task()` takes the action by value, a move more per task | `:1191` (`bind_task`) | CONFIRMED (tests, executor benchmark) — fixed `f21a58b` |
 | 31 | N | `call_tasks()` frees the storage it fires from | `:617` (`call_tasks`) | CONFIRMED (Qt-free probe), not in the benchmark — OPEN, optional |
+| **Group 10 — dispatch path, 2026-10-14 re-read** |
+| 32 | O | the actions are a `std::list`: a node hop per receiver on every dispatch | `:196` (`actions_t`), `:510` (`operator()`), `:742` (`remove`) | read-only — OPEN, to bench |
+| 33 | P | the trailing callback is copied on every dispatch, even from an lvalue | `:463` (`take_callback`), `:502`, `:567` | read-only — OPEN, to bench |
 
 ---
 
@@ -873,3 +880,66 @@ when nothing was added meanwhile - a callback that adds a task still adds it to 
 guard of step 29 requires. On its own it saves nothing; with async's step 55, one allocation per task
 instead of up to 2.8 when a worker keeps up with trivial tasks. See the executor's step 35, and its
 reason this is optional.
+
+---
+
+## Group 10 — dispatch path, from the 2026-10-14 re-read
+
+A performance re-read of actuator, async, executor and intrinsic_interface, after the executor's
+step 37 was declined. The executor/async path the benchmarks measure is covered by the executor's
+steps 28-41 and async's 51-57; what is left is the synchronous dispatch path, here. Neither step is
+measured: each is to be prototyped in a scratchpad copy and run through intrinsic_interface's
+`bench/qt_vs_this` before anything is planned.
+
+### Step 32 · finding O — the actions are a `std::list`: a node hop per receiver — OPEN, to bench
+`actuator.hpp:196` (`actions_t`), `:510` (`operator()`), `:742` (`remove`) · read-only, 2026-10-14,
+at `ab7ff02`
+
+Every dispatch walks list node -> `action_t*` -> `std::function` -> callable: one dependent load more
+per receiver than a contiguous container, and the nodes are scattered on the heap. In `qt_vs_this`
+(2026-10-09), no arguments at 1000 receivers costs 3.90 ns per receiver against 0.76 ns for the plain
+`std::function` baseline; part of that gap is the `weak_ptr` lock of a bound action, which stays.
+
+**Proposed:** `std::vector<action_t*>`. The elements are 8-byte pointers, so a reallocation's moves
+are near free, actions are added rarely, and the loop runs on every dispatch. A `std::deque`, as
+`tasks_t` is since step 29, fits the tasks - `std::function`s by value, added per submission,
+consumed whole - but here it would put its block map back between the loop and each element.
+
+**What it needs:**
+- **The loop goes by index**, the size re-read each pass, and the pointer copied out before the
+  call: the re-entrancy convention (`:183`) promises an action added during a dispatch runs in the
+  same pass, and `push_back` invalidates a vector's (or a deque's) iterators. Removal is already
+  refused during a dispatch (step 27), so the indexes cannot shift under the loop.
+  `invoke_action()` (`:567`) calls one named action from the map and has no loop to change.
+- **`remove()`:** `actions.remove_if(...)` becomes `std::erase(actions, action)`, which also returns
+  the count (C++20).
+- **The remark on `actions_t`** (`:190`) is rewritten.
+- **API:** `actions_t` and `actions` are public. Flux's only use is `std::ranges::find_if(act.actions,
+  ...)` (`flux_common.hpp:94`), which compiles against either; code using list-only operations
+  (`splice`, `push_front`, `remove_if` as a member) would not.
+
+**Tests first:** no test covers an action added during a dispatch (the re-entrancy tests cover
+removal and `reset()` only). One that adds enough actions mid-pass to force a reallocation, and checks
+they all run in that same pass, passes on the list today and guards the change.
+
+**To decide:** whether the gain is worth the change to a public type - only the bench answers it.
+Probably small at a few receivers, larger at many.
+
+### Step 33 · finding P — the trailing callback is copied on every dispatch — OPEN, to bench
+`actuator.hpp:463` (`take_callback`), `:502` (`operator()`), `:567` (`invoke_action`) · read-only,
+2026-10-14, at `ab7ff02`
+
+`take_callback()` returns the trailing callback by value, so a `std::function` callback is copied
+once per dispatch. The copy guards against an action moving the callback out of an rvalue argument
+before the later receivers get it. When the callback is passed as an lvalue nothing can move it, and
+a reference would do. In `qt_vs_this`, `int -> callback` is the case closest to Qt (0.73-0.89 of
+Qt's time, against 0.53-0.78 for the others); at one receiver it costs 7.0 ns against 4.7 ns for
+`int`, the copy one part of that.
+
+**Proposed:** keep the copy for an rvalue callback, hold a reference for an lvalue one.
+
+**Scope:** flux never passes actuator callbacks (its no-callback contract), so flux gains nothing;
+only direct users of the actuator and intrinsic_interface would.
+
+**Tests first:** a counting callback passed as an lvalue - 0 copies per dispatch, failing today;
+guard: an rvalue callback is still copied once, and every receiver still gets it intact.
