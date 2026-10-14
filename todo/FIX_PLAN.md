@@ -18,9 +18,10 @@ the executor's 34 the change the benchmark shows), and `call_tasks()` frees the 
 moves it into the task once. 128 of 128, plain and under ASan; async's 74 and the executor's 55 on
 Debug, ASan and TSan against it; `doc/refman.pdf` at 64 pages.
 **2026-10-14 — steps 32 and 33 (group 10), from a performance re-read of the dispatch path**
-(read-only, at `ab7ff02`, neither measured yet): the actions are a `std::list` walked by iterator
-(32), and the trailing callback is copied on every dispatch (33). Both OPEN, to prototype and bench
-before planning a change.
+(read-only, at `ab7ff02`): the actions are a `std::list` walked by iterator (32), and the trailing
+callback is copied on every dispatch (33). 32 is measured the same day with a scratchpad prototype -
+a `std::vector` dispatches about 20% faster at 1000 receivers and no faster at 1 or 8 - and taken
+(user: a real gain is worth it), uncommitted. 33 is OPEN, still to bench.
 
 ## Progress
 
@@ -115,7 +116,7 @@ inconsistent for a commit, which is the opposite of atomic. Every such case is f
 | 30 ✅ | M | `bind_task()` takes the action by value, a move more per task | `:1191` (`bind_task`) | CONFIRMED (tests, executor benchmark) — fixed `f21a58b` |
 | 31 | N | `call_tasks()` frees the storage it fires from | `:617` (`call_tasks`) | CONFIRMED (Qt-free probe), not in the benchmark — OPEN, optional |
 | **Group 10 — dispatch path, 2026-10-14 re-read** |
-| 32 | O | the actions are a `std::list`: a node hop per receiver on every dispatch | `:196` (`actions_t`), `:510` (`operator()`), `:742` (`remove`) | read-only — OPEN, to bench |
+| 32 ✅ | O | the actions are a `std::list`: a node hop per receiver on every dispatch | `:196` (`actions_t`), `:510` (`operator()`), `:742` (`remove`) | measured (scratchpad prototype, `qt_vs_this`) — ~20% faster at 1000 receivers, none at 1 or 8; fixed *(uncommitted)* |
 | 33 | P | the trailing callback is copied on every dispatch, even from an lvalue | `:463` (`take_callback`), `:502`, `:567` | read-only — OPEN, to bench |
 
 ---
@@ -891,7 +892,7 @@ steps 28-41 and async's 51-57; what is left is the synchronous dispatch path, he
 measured: each is to be prototyped in a scratchpad copy and run through intrinsic_interface's
 `bench/qt_vs_this` before anything is planned.
 
-### Step 32 · finding O — the actions are a `std::list`: a node hop per receiver — OPEN, to bench
+### Step 32 ✅ · finding O — the actions are a `std::list`: a node hop per receiver — DONE *(uncommitted)*
 `actuator.hpp:196` (`actions_t`), `:510` (`operator()`), `:742` (`remove`) · read-only, 2026-10-14,
 at `ab7ff02`
 
@@ -922,8 +923,44 @@ consumed whole - but here it would put its block map back between the loop and e
 removal and `reset()` only). One that adds enough actions mid-pass to force a reallocation, and checks
 they all run in that same pass, passes on the list today and guards the change.
 
-**To decide:** whether the gain is worth the change to a public type - only the bench answers it.
-Probably small at a few receivers, larger at many.
+**To decide:** whether the gain is worth the change to a public type.
+
+**Measured (2026-10-14, at `ab7ff02`):** a scratchpad copy of `actuator.hpp` with the three changes
+above - `actions_t` a `std::vector`, `operator()` by index with the size re-read, `remove()` by
+`std::erase` - and the guard test (`test_actions_added_during_dispatch_run_in_the_same_pass`: 100
+actions added mid-pass all run in it). 129 of 129 on Debug, list and vector alike. Then
+intrinsic_interface's `bench/qt_vs_this`, Release, both copies built alike, three runs each taking
+turns. Apple M4, macOS 26.6.2, Apple clang 17. Intrinsic column, ns per dispatch, the three runs:
+
+| dispatch | recv | `std::list` | `std::vector` | vector/list (middle run) |
+|---|---:|---|---|---:|
+| no arguments | 1 | 4.8, 4.5, 4.5 | 4.7, 4.5, 4.7 | 1.04 |
+| no arguments | 8 | 23.5, 20.7, 22.8 | 24.5, 22.3, 22.8 | 1.00 |
+| no arguments | 1000 | 4640, 4385, 4517 | 3682, 3722, 4001 | **0.82** |
+| int | 1000 | 4410, 4715, 4339 | 3833, 3177, 3495 | **0.79** |
+| const std::string& | 1000 | 4630, 4377, 4585 | 4348, 3675, 4264 | 0.93 |
+| int -> results | 1000 | 4116, 4543, 4238 | 4466, 4141, 4417 | 1.04 |
+| int -> callback | 1000 | 8879 (outlier), 4783, 4913 | 5029, 4656, 4672 | 0.95 |
+
+The other cases at 1 and 8 receivers land at 0.98-1.05.
+
+- **A gain only with many receivers:** at 1000, plain dispatch drops from about 4.5 to 3.7 ns per
+  receiver, the scattered nodes being the cost there. At 1 and 8 - flux's fan-outs - nothing.
+- **Not with results:** at 1000, `int -> results` is level; the `push_back` into `results` costs
+  more than the walk.
+- **Noise:** the 1000-receiver runs spread up to 15%, but in `no arguments` and `int` every vector
+  run is below every list run.
+
+**Decided (user, 2026-10-14): taken** - a real gain is worth the change to the public type.
+
+**Applied (uncommitted):** `actions_t` is a `std::vector<action_t*>`; `operator()` goes by index, the
+size re-read and the pointer copied out before the call; `remove()` uses `std::erase`; the remark on
+`actions_t` says why, and that an action added mid-dispatch is still called in the same pass.
+`<list>` stays, for `owned`. The guard test, written first, passed on the list and passes on the
+vector. 129 of 129 on Debug and ASan; intrinsic_interface 32 of 32; fluxcpp 39 of 39 on Debug,
+ASan and TSan; async 77 of 77 and the executor 54 of 54 on Debug, ASan and TSan, built against this
+header copied into `executor/async/actuator` for the run and restored after. clang-format clean on
+the changed lines; `doc/refman.pdf` regenerated, 64 pages.
 
 ### Step 33 · finding P — the trailing callback is copied on every dispatch — OPEN, to bench
 `actuator.hpp:463` (`take_callback`), `:502` (`operator()`), `:567` (`invoke_action`) · read-only,

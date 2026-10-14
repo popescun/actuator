@@ -192,8 +192,12 @@ struct actuator final {
    * @remark The elements stored are of pointer type, that is required to implement the remove()
    * operation. std::function supports only equality operator for nullptr (two std::function(s) can
    * not compare).
+   *
+   * @remark A std::vector, walked on every dispatch: contiguous pointers cost a receiver one load
+   * less than a std::list's nodes. \ref operator()() goes by index, so an action added during a
+   * dispatch, which may reallocate, is still called in the same pass.
    */
-  using actions_t = std::list<action_t*>;
+  using actions_t = std::vector<action_t*>;
   using actions_map_t = std::map<std::string, action_t*>;
   /**
    * @brief Tasks container type.
@@ -507,7 +511,9 @@ struct actuator final {
     std::vector<action_t*> dead_actions;
 
     ++dispatching;
-    for (const auto& action : actions) {
+    // By index, the size re-read: an action added during the dispatch still runs in this pass.
+    for (std::size_t i = 0; i < actions.size(); ++i) {
+      action_t* const action = actions[i];
       // A null pointer or an empty std::function can never be invoked. Calling an
       // empty one throws std::bad_function_call, which is not an invalid_action and
       // would escape this operator, so drop it instead of invoking it.
@@ -739,7 +745,7 @@ struct actuator final {
     if (dispatching > 0) {
       return false;
     }
-    const auto removed = actions.remove_if([&action](const auto& a) { return (action == a); });
+    const auto removed = std::erase(actions, action);
     release_owned(action);
     return removed > 0;
   }

@@ -926,6 +926,27 @@ TEST(test_actuator, test_a_named_action_cannot_remove_itself_during_invoke_actio
   EXPECT_TRUE(actuator.has_action("once")) << "the action is still there";
 }
 
+TEST(test_actuator, test_actions_added_during_dispatch_run_in_the_same_pass) {
+  untangle::actuator<std::function<void()>> actuator;
+  int ran = 0;
+  bool added = false;
+  actuator.add([&actuator, &ran, &added] {
+    if (added) {
+      return;
+    }
+    added = true;
+    // Enough to make the container grow several times mid-pass.
+    for (int i = 0; i < 100; ++i) {
+      actuator.add([&ran] { ++ran; });
+    }
+  });
+
+  actuator();
+
+  EXPECT_EQ(ran, 100) << "every added action ran in the pass that added it";
+  EXPECT_EQ(actuator.actions.size(), 101);
+}
+
 TEST(test_actuator, test_an_action_can_be_removed_once_the_dispatch_returns) {
   untangle::actuator<std::function<int(int)>> actuator;
   auto* action = actuator.add([](int v) { return v; });
