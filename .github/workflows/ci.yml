@@ -4,6 +4,13 @@ on:
   push:
   pull_request:
 
+# One run per branch or PR: a new push cancels the older run, queued jobs included. Every job runs
+# on the one self-hosted runner, so commits pushed in a row would otherwise queue all their jobs
+# behind each other, and only the newest one matters.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   # Formatting is platform independent: the same clang-format version produces
   # the same result everywhere, so this runs once rather than per platform.
