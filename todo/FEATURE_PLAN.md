@@ -259,6 +259,7 @@ check, not a type one — and that is the one hole the parameter cannot close by
 | 6 ✅ | `has_tasks()`, `is_connected()` untouched | `:827-857` | CONFIRMED (4 cases) — **DONE** (`beb5fe8`) |
 | 7 ✅ | `README.md`, `tools/make_doc.sh`, and the commits | `README.md`, `doc/` | **DONE** (`beb5fe8`) |
 | 9 ✅ | a task's callback takes its result by rvalue: `void(R&&)`, move-only `R` | `task_callback_for`, `take_callback()` | CONFIRMED (4 cases) — **DONE** (`49b7b10`) |
+| 10 | `task_t` returns `bool`, so one task type serves the actuator, async and the executor | `:126`, `bind_task()`, `add_task()`, `call_tasks()` | planned 2026-10-30 — OPEN |
 
 ### Step 1 ✅ · `task_callback_for`, `task_callback_type`, `task<result_t>` — DONE
 
@@ -653,6 +654,28 @@ guard was green both before and after. Bound arguments are still copied; only th
 **Downstream:** async and executor only forward to `bind_task()`, so they pick this up with the
 pin bump and need no code change. The copy at `executor/async/actuator` stays on the old pin until
 then.
+
+### Step 10 · `task_t` returns `bool` — OPEN
+
+Added 2026-10-30, with the user. Sites at `c2e09a8`.
+
+**Why.** A task is a parameterless function at every level: here it holds the job, in the executor a
+wrapper around a job and its arguments. The executor's ordering keys (its feature step 8) need one
+that also answers, so they hold a `std::function<bool()>` of their own. One type serves both if
+`task_t` returns `bool`; a caller reads the answer or ignores it.
+
+> Proposed - agreed with the user:
+> - **`using task_t = std::function<bool()>;`**
+> - **`bind_task()`'s task returns `true`** once its action and callback have returned. An exception
+>   still propagates, so `actuator::errors`, async's `on_error` and the executor's `on_task_error`
+>   keep reporting it; a task never turns a throw into `false`.
+> - **`add_task()` still takes a `void` callable,** wrapped to return `true`, so no caller breaks.
+> - **`call_tasks()` ignores the answer.**
+> - **Tests first:** the type is `std::function<bool()>`; a bound task answers `true` after its
+>   callback; a throwing one throws; a `bool` callable is taken and its `false` ignored; a `void`
+>   one is still taken.
+> - **Downstream:** async follows the type (its `add_queued_task()`, its tests), then the executor's
+>   ordering keys hold `untangle::task_t`. Each repo pushed before the next bumps its pin.
 
 ### Struck — "the actions path has never been tested"
 

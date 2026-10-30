@@ -117,6 +117,8 @@ The arguments are **copied** when the task is built, while the caller still hold
 
 A task's result goes to its callback and nowhere else: `actuator::results` is how an *action* hands back what it returned, and a task was built with something better. `call_tasks()` appends to `errors` rather than clearing it, while `operator()` clears both as it starts -- so an actuator fired as `one(); one.call_tasks();` reports both kinds together, and the actions go first.
 
+A task is an `untangle::task_t`, a `std::function<bool()>`: what it returns says only whether it did its job, and a caller may ignore it. One from `bind_task()` answers `true` once its action and callback have run; a throw still goes to `errors`, never into `false`. `call_tasks()` ignores the answer, and `add_task()` also takes a nullary callable returning nothing, as a task that answers `true`.
+
 Ask `has_tasks()` whether a task is waiting. `is_connected()` answers for the actions and for nothing else: an actuator holding only tasks is *not* connected, and a queue reading the wrong one would report a batch of tasks as nothing to do.
 
 For convenience there are provided helpers methods to "connect" to an initial list of "actions", or to create bindings to class methods.

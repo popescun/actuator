@@ -1577,10 +1577,11 @@ TEST(test_actuator, test_invoke_action_records_what_the_action_threw) {
 // exists for a void result too: a task with nothing to report still has a completion to report.
 // See todo/FEATURE_PLAN.md.
 //
-// A task is one nullary callable -- untangle::task_t, which is a std::function<void()> -- with the
-// action, the arguments and the callback all sealed inside it. It returns nothing because its
-// result goes to its callback and nowhere else, and running it is what reports: there is no
-// separate call to notify, and no part of it to inspect or build by hand. That is what replaces
+// A task is one nullary callable -- untangle::task_t, which is a std::function<bool()> -- with the
+// action, the arguments and the callback all sealed inside it. Its result goes to its callback and
+// nowhere else; what it returns says only whether it did its job, and a caller may ignore it.
+// Running it is what reports: there is no separate call to notify, and no part of it to inspect or
+// build by hand. That is what replaces
 // the task<result_t> struct that carried a call and a callback side by side.
 
 //! A callable that consumes an int and returns nothing: a callback for a task returning int.
@@ -1657,9 +1658,9 @@ TEST(test_actuator, test_a_task_is_one_nullary_callable) {
   // can be, whatever it was built from -- and that is what lets one container hold tasks built
   // from completely different actions, as it already held tasks built from different argument
   // packs.
-  static_assert(std::is_same_v<untangle::task_t, std::function<void()>>);
+  static_assert(std::is_same_v<untangle::task_t, std::function<bool()>>);
 
-  static_assert(std::is_void_v<std::invoke_result_t<untangle::task_t&>>);
+  static_assert(std::is_same_v<std::invoke_result_t<untangle::task_t&>, bool>);
 }
 
 TEST(test_actuator, test_a_task_from_an_int_action_and_one_from_a_void_action_are_the_same_type) {
@@ -1718,8 +1719,33 @@ TEST(test_actuator, test_a_default_built_task_is_empty) {
   untangle::task_t empty;
   ASSERT_FALSE(static_cast<bool>(empty));
 
-  untangle::task_t ready = [] {};
+  untangle::task_t ready = [] { return true; };
   ASSERT_TRUE(static_cast<bool>(ready));
+}
+
+TEST(test_actuator, test_a_bound_task_answers_true_once_its_callback_returned) {
+  // What a task answers says whether it did its job: a bound one did, once its action ran and its
+  // callback was notified.
+  bool notified = false;
+
+  untangle::task_t one =
+      untangle::bind_task(std::function<int(void)>([] { return 42; }),
+                          std::function<void(int)>([&notified](int) { notified = true; }));
+
+  const bool answered = one();
+
+  ASSERT_TRUE(answered) << "a bound task that ran to the end answered false";
+  ASSERT_TRUE(notified) << "the task answered before its callback was notified";
+}
+
+TEST(test_actuator, test_a_bound_task_that_throws_throws_rather_than_answering_false) {
+  // A throw is reported where throws are reported - actuator::errors, an execution's on_error, an
+  // executor's on_task_error - so a task never swallows one into a false answer.
+  untangle::task_t one = untangle::bind_task(
+      std::function<int(void)>([]() -> int { throw std::runtime_error("expected"); }),
+      std::function<void(int)>([](int) {}));
+
+  ASSERT_THROW(one(), std::runtime_error);
 }
 
 TEST(test_actuator, test_running_a_task_is_what_reports) {
@@ -1920,7 +1946,10 @@ struct counted_action {
  */
 int moves_to_erase_a_task() {
   counted_action::reset();
-  untangle::task_t erased = [action = counted_action{}] { (void)action(0); };
+  untangle::task_t erased = [action = counted_action{}] {
+    (void)action(0);
+    return true;
+  };
   (void)erased;
   return counted_action::moves;
 }
@@ -2246,9 +2275,10 @@ TEST(test_actuator, test_a_refused_task_leaves_the_ones_already_held) {
 }
 
 TEST(test_actuator, test_add_task_takes_any_nullary_void_callable) {
-  // A task is a std::function<void()>, so anything that can be one is a task: a caller with work
-  // already bound needs no bind_task() to hand it over. What it does with its own completion is its
-  // own business -- what makes it a task here is that it is fired once and consumed.
+  // A nullary callable that returns nothing is still a task: add_task() wraps it to answer true, so
+  // a caller with work already bound needs no bind_task() to hand it over. What it does with its
+  // own completion is its own business -- what makes it a task here is that it is fired once and
+  // consumed.
   int ran = 0;
   untangle::actuator<std::function<int(int)>> actuator;
 
@@ -2258,6 +2288,24 @@ TEST(test_actuator, test_add_task_takes_any_nullary_void_callable) {
 
   ASSERT_EQ(ran, 1);
   ASSERT_TRUE(actuator.tasks.empty()) << "a task added as a bare lambda was not consumed";
+}
+
+TEST(test_actuator, test_add_task_takes_a_task_that_answers_and_call_tasks_ignores_the_answer) {
+  // A nullary callable returning bool is a task_t as it is. call_tasks() runs it and consumes it
+  // whatever it answers: the answer is for a caller that wants it, and the actuator does not.
+  int ran = 0;
+  untangle::actuator<std::function<int(int)>> actuator;
+
+  ASSERT_TRUE(actuator.add_task([&ran] {
+    ++ran;
+    return false;
+  })) << "add_task refused a nullary lambda returning bool";
+
+  actuator.call_tasks();
+
+  ASSERT_EQ(ran, 1);
+  ASSERT_TRUE(actuator.tasks.empty()) << "a task that answered false was not consumed";
+  ASSERT_TRUE(actuator.errors.empty()) << "a task that answered false was reported as an error";
 }
 
 TEST(test_actuator, test_one_tasks_list_holds_tasks_built_from_unrelated_actions) {

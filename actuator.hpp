@@ -117,13 +117,14 @@ concept testable_for_emptiness =
  * fired once and reports to its own callback -- so it is held by value, and call_tasks() consumes
  * it.
  *
- * @remark **Running it is what reports**, and it returns nothing: the result goes to the callback
- * and nowhere else, so there is nothing to read back and no part of it to reach from outside.
+ * @remark **Running it is what reports**: the result goes to the callback and nowhere else. What it
+ * returns says only whether it did its job - true once a task from \ref bind_task() has run and
+ * notified - and a caller may ignore it. A throw is not turned into false: it propagates.
  *
  * @remark **It names neither the argument types nor the result type**, so one container holds tasks
- * built from completely different actions. Anything that can be a std::function<void()> is a task.
+ * built from completely different actions. Anything that can be a std::function<bool()> is a task.
  */
-using task_t = std::function<void()>;
+using task_t = std::function<bool()>;
 
 /**
  * @brief An actuator is a functor that can trigger a dynamic list of actions (of type
@@ -626,8 +627,9 @@ struct actuator final {
 
     for (auto& task : firing) {
       try {
-        // The task notifies its own callback: bind_task() sealed the two together.
-        task();
+        // The task notifies its own callback: bind_task() sealed the two together. What it answers
+        // is for callers that want it; the actuator does not.
+        (void)task();
       } catch (...) {
         // The task's own failure, or its callback's -- the two are not told apart here, and the
         // attention above says why.
@@ -720,6 +722,31 @@ struct actuator final {
 
     tasks.push_back(std::move(task));
     return true;
+  }
+
+  /**
+   * @brief Adds a nullary callable that returns nothing, as a task that answers true once it has
+   * run.
+   *
+   * @tparam callable_t - The callable's type.
+   * @param callable - The callable to add. An empty one is refused, as by the overload above.
+   *
+   * @return true - taken, and \ref call_tasks() will fire it.
+   * @return false - refused: it is empty.
+   */
+  template <typename callable_t>
+    requires std::is_void_v<std::invoke_result_t<std::decay_t<callable_t>&>>
+  bool add_task(callable_t&& callable) {
+    if constexpr (testable_for_emptiness<std::decay_t<callable_t>>) {
+      if (!callable) {
+        return false;
+      }
+    }
+
+    return add_task(task_t([run = std::forward<callable_t>(callable)]() mutable {
+      run();
+      return true;
+    }));
   }
 
   /**
@@ -1234,7 +1261,7 @@ task_t bind_task(action_t&& action, Args&&... args) {
   return [&]<std::size_t... i>(std::index_sequence<i...>) -> task_t {
     return [action = std::forward<action_t>(action), callback = callback_t(std::get<last>(pack)),
             bound = std::tuple<std::decay_t<decltype(std::get<i>(pack))>...>(
-                std::get<i>(pack)...)]() mutable -> void {
+                std::get<i>(pack)...)]() mutable -> bool {
       if constexpr (std::is_void_v<result_t>) {
         std::apply(action, bound);
         callback();
@@ -1243,6 +1270,7 @@ task_t bind_task(action_t&& action, Args&&... args) {
         // copied is still a result a task can report.
         callback(std::apply(action, bound));
       }
+      return true;
     };
   }(std::make_index_sequence<last>{});
 }
